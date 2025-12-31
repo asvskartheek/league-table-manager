@@ -1,11 +1,12 @@
 """League Table Manager - Interactive Gradio Interface"""
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 import pandas as pd
 import gradio as gr
-from huggingface_hub import CommitScheduler
+from huggingface_hub import HfApi
 
 # Constants
 TEAMS = ["Seelam", "Akhil", "Kartheek", "Shiva"]
@@ -17,17 +18,38 @@ DATASET_DIR.mkdir(parents=True, exist_ok=True)
 MATCHES_FILE = DATASET_DIR / f"matches-{uuid4()}.jsonl"
 DELETION_LOG_FILE = DATASET_DIR / f"deletions-{uuid4()}.jsonl"
 
-# Initialize CommitScheduler for automatic persistence
-scheduler = CommitScheduler(
-    repo_id="league-table-data",
-    repo_type="dataset",
-    folder_path=DATASET_DIR,
-    path_in_repo="data",
-    private=True,  # Keep the dataset private
-)
+# Initialize HfApi for immediate uploads
+api = HfApi()
+REPO_ID = "asvs/league-table-data"
+REPO_TYPE = "dataset"
+PATH_IN_REPO = "data"
+
+# Thread lock for safe concurrent writes
+file_lock = threading.Lock()
 
 # Global matches storage
 matches = []
+
+
+def ensure_repo_exists():
+    """Create the HuggingFace dataset repository if it doesn't exist."""
+    try:
+        # Check if repo exists by trying to get repo info
+        api.repo_info(repo_id=REPO_ID, repo_type=REPO_TYPE)
+        print(f"Repository '{REPO_ID}' already exists")
+    except Exception:
+        # Repository doesn't exist, create it
+        try:
+            api.create_repo(
+                repo_id=REPO_ID,
+                repo_type=REPO_TYPE,
+                private=True,
+                exist_ok=True
+            )
+            print(f"Created new dataset repository: '{REPO_ID}'")
+        except Exception as e:
+            print(f"Error creating repository: {e}")
+            print("Please create the repository manually or check your HF_TOKEN permissions")
 
 
 def initialize_matches_from_league_scores():
@@ -76,7 +98,7 @@ def load_matches():
         # Save initial matches
         for match in initial_matches:
             match_id = str(uuid4())
-            with scheduler.lock:
+            with file_lock:
                 with MATCHES_FILE.open("a") as f:
                     record = {
                         "id": match_id,
@@ -88,7 +110,18 @@ def load_matches():
                     }
                     json.dump(record, f)
                     f.write("\n")
-                    matches.append([match_id, match[0], match[1], match[2], match[3]])
+                    matches.append([match_id, match[0], match[1], match[2], match[3], record["datetime"]])
+
+        # Upload initial matches file immediately
+        try:
+            api.upload_file(
+                path_or_fileobj=str(MATCHES_FILE),
+                path_in_repo=f"{PATH_IN_REPO}/{MATCHES_FILE.name}",
+                repo_id=REPO_ID,
+                repo_type=REPO_TYPE,
+            )
+        except Exception as e:
+            print(f"Error uploading initial matches: {e}")
     else:
         # Load matches from all JSONL files, excluding deleted ones
         for match_file in match_files:
@@ -105,7 +138,8 @@ def load_matches():
                                     record["home"],
                                     record["away"],
                                     record["home_goals"],
-                                    record["away_goals"]
+                                    record["away_goals"],
+                                    record.get("datetime", datetime.now().isoformat())  # Default to now if missing
                                 ])
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Error loading {match_file}: {e}")
@@ -130,7 +164,7 @@ def calculate_table(matches_list):
 
     # Process each match
     for match in matches_list:
-        match_id, h, a, gh, ga = match
+        match_id, h, a, gh, ga = match[0], match[1], match[2], match[3], match[4]
 
         table[h]["P"] += 1
         table[a]["P"] += 1
@@ -172,16 +206,94 @@ def calculate_table(matches_list):
     return df
 
 
+def calculate_head_to_head(team1, team2, matches_list):
+    """Calculate head-to-head stats between two teams."""
+    if not team1 or not team2 or team1 == team2:
+        return pd.DataFrame()
+
+    # Initialize stats for both teams
+    stats = {
+        team1: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "WP": 0.0},
+        team2: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "WP": 0.0}
+    }
+
+    # Process matches between these two teams
+    for match in matches_list:
+        h, a, gh, ga = match[1], match[2], match[3], match[4]
+
+        # Check if this match involves both teams
+        if (h == team1 and a == team2) or (h == team2 and a == team1):
+            # Update stats for home team
+            stats[h]["P"] += 1
+            stats[h]["GF"] += gh
+            stats[h]["GA"] += ga
+
+            # Update stats for away team
+            stats[a]["P"] += 1
+            stats[a]["GF"] += ga
+            stats[a]["GA"] += gh
+
+            # Update W/D/L
+            if gh > ga:
+                stats[h]["W"] += 1
+                stats[a]["L"] += 1
+            elif gh < ga:
+                stats[a]["W"] += 1
+                stats[h]["L"] += 1
+            else:
+                stats[h]["D"] += 1
+                stats[a]["D"] += 1
+
+    # Calculate win percentages
+    for team in [team1, team2]:
+        if stats[team]["P"] > 0:
+            stats[team]["WP"] = round((stats[team]["W"] / stats[team]["P"]) * 100, 2)
+
+    # Create a 2-column DataFrame
+    data = {
+        "Stat": ["P", "W", "D", "L", "Win %", "GF", "GA"],
+        team1: [
+            stats[team1]["P"],
+            stats[team1]["W"],
+            stats[team1]["D"],
+            stats[team1]["L"],
+            f"{stats[team1]['WP']}%",
+            stats[team1]["GF"],
+            stats[team1]["GA"]
+        ],
+        team2: [
+            stats[team2]["P"],
+            stats[team2]["W"],
+            stats[team2]["D"],
+            stats[team2]["L"],
+            f"{stats[team2]['WP']}%",
+            stats[team2]["GF"],
+            stats[team2]["GA"]
+        ]
+    }
+
+    return pd.DataFrame(data)
+
+
 def get_matches_dataframe(matches_list):
     """Convert matches list to DataFrame for display."""
     if not matches_list:
-        return pd.DataFrame(columns=["#", "Home", "Away", "Home Goals", "Away Goals"])
+        return pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
+
+    # Sort matches by datetime (most recent first)
+    sorted_matches = sorted(matches_list, key=lambda x: x[5], reverse=True)
 
     data = []
-    for i, match in enumerate(matches_list, 1):
-        match_id, h, a, gh, ga = match
+    for i, match in enumerate(sorted_matches, 1):
+        match_id, h, a, gh, ga, dt = match
+
+        # Format datetime as DD-MM-YY HH:MM AM/PM
+        dt_obj = datetime.fromisoformat(dt)
+        formatted_dt = dt_obj.strftime("%d-%m-%y %I:%M %p")
+
         data.append({
             "#": i,
+            "Timestamp": formatted_dt,
             "Home": h,
             "Away": a,
             "Home Goals": gh,
@@ -219,13 +331,14 @@ def add_match(home, away, home_goals, away_goals):
             "Error: Goals must be non-negative!"
         )
 
-    # Add match with scheduler lock for thread-safe writes
+    # Add match with file lock for thread-safe writes
     match_id = str(uuid4())
-    match_data = [match_id, home, away, int(home_goals), int(away_goals)]
+    match_datetime = datetime.now().isoformat()
+    match_data = [match_id, home, away, int(home_goals), int(away_goals), match_datetime]
     matches.append(match_data)
 
     # Persist to dataset
-    with scheduler.lock:
+    with file_lock:
         with MATCHES_FILE.open("a") as f:
             record = {
                 "id": match_id,
@@ -233,15 +346,28 @@ def add_match(home, away, home_goals, away_goals):
                 "away": away,
                 "home_goals": int(home_goals),
                 "away_goals": int(away_goals),
-                "datetime": datetime.now().isoformat()
+                "datetime": match_datetime
             }
             json.dump(record, f)
             f.write("\n")
 
+    # Upload file immediately to HuggingFace
+    try:
+        api.upload_file(
+            path_or_fileobj=str(MATCHES_FILE),
+            path_in_repo=f"{PATH_IN_REPO}/{MATCHES_FILE.name}",
+            repo_id=REPO_ID,
+            repo_type=REPO_TYPE,
+        )
+        upload_status = " (uploaded to HF)"
+    except Exception as e:
+        print(f"Error uploading match: {e}")
+        upload_status = " (upload failed)"
+
     # Return updated tables and status
     league_table = calculate_table(matches)
     matches_table = get_matches_dataframe(matches)
-    status = f"Match added: {home} {int(home_goals)} - {int(away_goals)} {away}"
+    status = f"Match added: {home} {int(home_goals)} - {int(away_goals)} {away}{upload_status}"
 
     return league_table, matches_table, status
 
@@ -267,10 +393,10 @@ def delete_match(row_number):
 
     # Get match details for logging
     match = matches[row_idx]
-    match_id, h, a, gh, ga = match
+    match_id, h, a, gh, ga = match[0], match[1], match[2], match[3], match[4]
 
-    # Log deletion with scheduler lock
-    with scheduler.lock:
+    # Log deletion with file lock
+    with file_lock:
         with DELETION_LOG_FILE.open("a") as f:
             deletion_record = {
                 "match_id": match_id,
@@ -283,96 +409,151 @@ def delete_match(row_number):
             json.dump(deletion_record, f)
             f.write("\n")
 
+    # Upload deletion log immediately to HuggingFace
+    try:
+        api.upload_file(
+            path_or_fileobj=str(DELETION_LOG_FILE),
+            path_in_repo=f"{PATH_IN_REPO}/{DELETION_LOG_FILE.name}",
+            repo_id=REPO_ID,
+            repo_type=REPO_TYPE,
+        )
+        upload_status = " (uploaded to HF)"
+    except Exception as e:
+        print(f"Error uploading deletion log: {e}")
+        upload_status = " (upload failed)"
+
     # Remove match from in-memory list
     matches.pop(row_idx)
 
     # Return updated tables and status
     league_table = calculate_table(matches)
     matches_table = get_matches_dataframe(matches)
-    status = f"Deleted row {int(row_number)}: {h} vs {a} ({gh}-{ga})"
+    status = f"Deleted row {int(row_number)}: {h} vs {a} ({gh}-{ga}){upload_status}"
 
     return league_table, matches_table, status
 
 
 def build_interface():
     """Build and return the Gradio interface."""
+    # Ensure HuggingFace repository exists
+    ensure_repo_exists()
+
     # Load initial data
     load_matches()
 
     with gr.Blocks(title="League Table Manager") as demo:
         gr.Markdown("# League Table Manager")
 
-        with gr.Row():
-            # Left Column - Input Form
-            with gr.Column(scale=1):
-                home_team = gr.Dropdown(
-                    choices=TEAMS,
-                    label="Home Team",
-                    value=TEAMS[0],
-                    allow_custom_value=True
+        with gr.Tabs():
+            with gr.Tab("League Manager"):
+                with gr.Row():
+                    # Left Column - Input Form
+                    with gr.Column(scale=1):
+                        home_team = gr.Dropdown(
+                            choices=TEAMS,
+                            label="Home Team",
+                            value=TEAMS[0],
+                            allow_custom_value=True
+                        )
+                        away_team = gr.Dropdown(
+                            choices=TEAMS,
+                            label="Away Team",
+                            value=TEAMS[1],
+                            allow_custom_value=True
+                        )
+
+                        with gr.Row():
+                            home_goals = gr.Number(
+                                label="Home Goals",
+                                value=0,
+                                minimum=0,
+                                precision=0
+                            )
+                            away_goals = gr.Number(
+                                label="Away Goals",
+                                value=0,
+                                minimum=0,
+                                precision=0
+                            )
+
+                        submit_btn = gr.Button("Add Match", variant="primary")
+                        status_msg = gr.Textbox(label="Status", interactive=False)
+
+                    # Right Column - Tables
+                    with gr.Column(scale=2):
+                        league_table = gr.Dataframe(
+                            label="League Table",
+                            value=calculate_table(matches),
+                            interactive=False,
+                            wrap=True
+                        )
+
+                        matches_table = gr.Dataframe(
+                            label="Match History",
+                            value=get_matches_dataframe(matches),
+                            interactive=False,
+                            wrap=True
+                        )
+
+                        with gr.Row():
+                            delete_row_input = gr.Number(
+                                label="Row # to Delete",
+                                value=None,
+                                minimum=1,
+                                precision=0,
+                                scale=2
+                            )
+                            delete_btn = gr.Button("Delete Row", variant="stop", scale=1)
+
+                # Event Handlers
+                submit_btn.click(
+                    fn=add_match,
+                    inputs=[home_team, away_team, home_goals, away_goals],
+                    outputs=[league_table, matches_table, status_msg]
                 )
-                away_team = gr.Dropdown(
-                    choices=TEAMS,
-                    label="Away Team",
-                    value=TEAMS[1],
-                    allow_custom_value=True
+
+                delete_btn.click(
+                    fn=delete_match,
+                    inputs=[delete_row_input],
+                    outputs=[league_table, matches_table, status_msg]
                 )
+
+            with gr.Tab("Team vs Team Stats"):
+                gr.Markdown("### Head-to-Head Statistics")
 
                 with gr.Row():
-                    home_goals = gr.Number(
-                        label="Home Goals",
-                        value=0,
-                        minimum=0,
-                        precision=0
+                    h2h_team1 = gr.Dropdown(
+                        choices=TEAMS,
+                        label="Team 1",
+                        value=TEAMS[0],
+                        allow_custom_value=True
                     )
-                    away_goals = gr.Number(
-                        label="Away Goals",
-                        value=0,
-                        minimum=0,
-                        precision=0
+                    h2h_team2 = gr.Dropdown(
+                        choices=TEAMS,
+                        label="Team 2",
+                        value=TEAMS[1],
+                        allow_custom_value=True
                     )
 
-                submit_btn = gr.Button("Add Match", variant="primary")
-                status_msg = gr.Textbox(label="Status", interactive=False)
-
-            # Right Column - Tables
-            with gr.Column(scale=2):
-                league_table = gr.Dataframe(
-                    label="League Table",
-                    value=calculate_table(matches),
+                h2h_stats = gr.Dataframe(
+                    label="Head-to-Head Stats",
+                    value=calculate_head_to_head(TEAMS[0], TEAMS[1], matches),
                     interactive=False,
                     wrap=True
                 )
 
-                matches_table = gr.Dataframe(
-                    label="Match History",
-                    value=get_matches_dataframe(matches),
-                    interactive=False,
-                    wrap=True
+                # Event handler for team selection
+                h2h_team1.change(
+                    fn=lambda t1, t2: calculate_head_to_head(t1, t2, matches),
+                    inputs=[h2h_team1, h2h_team2],
+                    outputs=[h2h_stats]
                 )
 
-                with gr.Row():
-                    delete_row_input = gr.Number(
-                        label="Row # to Delete",
-                        value=None,
-                        minimum=1,
-                        precision=0,
-                        scale=2
-                    )
-                    delete_btn = gr.Button("Delete Row", variant="stop", scale=1)
-
-        # Event Handlers
-        submit_btn.click(
-            fn=add_match,
-            inputs=[home_team, away_team, home_goals, away_goals],
-            outputs=[league_table, matches_table, status_msg]
-        )
-
-        delete_btn.click(
-            fn=delete_match,
-            inputs=[delete_row_input],
-            outputs=[league_table, matches_table, status_msg]
-        )
+                h2h_team2.change(
+                    fn=lambda t1, t2: calculate_head_to_head(t1, t2, matches),
+                    inputs=[h2h_team1, h2h_team2],
+                    outputs=[h2h_stats]
+                )
 
     return demo
 
