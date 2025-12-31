@@ -1,14 +1,30 @@
 """League Table Manager - Interactive Gradio Interface"""
 import json
-import os
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 import pandas as pd
 import gradio as gr
+from huggingface_hub import CommitScheduler
 
 # Constants
 TEAMS = ["Seelam", "Akhil", "Kartheek", "Shiva"]
-MATCHES_FILE = "matches.json"
-DELETION_LOG = "deletion_log.txt"
+
+# Dataset storage setup
+DATASET_DIR = Path("league_data")
+DATASET_DIR.mkdir(parents=True, exist_ok=True)
+
+MATCHES_FILE = DATASET_DIR / f"matches-{uuid4()}.jsonl"
+DELETION_LOG_FILE = DATASET_DIR / f"deletions-{uuid4()}.jsonl"
+
+# Initialize CommitScheduler for automatic persistence
+scheduler = CommitScheduler(
+    repo_id="league-table-data",
+    repo_type="dataset",
+    folder_path=DATASET_DIR,
+    path_in_repo="data",
+    private=True,  # Keep the dataset private
+)
 
 # Global matches storage
 matches = []
@@ -33,30 +49,71 @@ def initialize_matches_from_league_scores():
 
 
 def load_matches():
-    """Load matches from JSON file."""
+    """Load matches from all JSONL files in dataset directory."""
     global matches
-    try:
-        if os.path.exists(MATCHES_FILE):
-            with open(MATCHES_FILE, 'r') as f:
-                matches = json.load(f)
-                # If file is empty or has no matches, initialize with league_scores data
-                if not matches:
-                    matches = initialize_matches_from_league_scores()
-                    save_matches()
-        else:
-            # Initialize with data from league_scores.py
-            matches = initialize_matches_from_league_scores()
-            save_matches()
-    except json.JSONDecodeError:
-        matches = initialize_matches_from_league_scores()
-        save_matches()
+    matches = []
+
+    # Load deleted match IDs
+    deleted_ids = set()
+    deletion_files = sorted(DATASET_DIR.glob("deletions-*.jsonl"))
+    for deletion_file in deletion_files:
+        try:
+            with deletion_file.open("r") as f:
+                for line in f:
+                    if line.strip():
+                        record = json.loads(line)
+                        deleted_ids.add(record["match_id"])
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Error loading {deletion_file}: {e}")
+            continue
+
+    # Load all match records from JSONL files
+    match_files = sorted(DATASET_DIR.glob("matches-*.jsonl"))
+
+    if not match_files:
+        # Initialize with data from league_scores.py if no files exist
+        initial_matches = initialize_matches_from_league_scores()
+        # Save initial matches
+        for match in initial_matches:
+            match_id = str(uuid4())
+            with scheduler.lock:
+                with MATCHES_FILE.open("a") as f:
+                    record = {
+                        "id": match_id,
+                        "home": match[0],
+                        "away": match[1],
+                        "home_goals": match[2],
+                        "away_goals": match[3],
+                        "datetime": datetime.now().isoformat()
+                    }
+                    json.dump(record, f)
+                    f.write("\n")
+                    matches.append([match_id, match[0], match[1], match[2], match[3]])
+    else:
+        # Load matches from all JSONL files, excluding deleted ones
+        for match_file in match_files:
+            try:
+                with match_file.open("r") as f:
+                    for line in f:
+                        if line.strip():
+                            record = json.loads(line)
+                            match_id = record["id"]
+                            # Skip deleted matches
+                            if match_id not in deleted_ids:
+                                matches.append([
+                                    match_id,
+                                    record["home"],
+                                    record["away"],
+                                    record["home_goals"],
+                                    record["away_goals"]
+                                ])
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"Error loading {match_file}: {e}")
+                continue
+
     return matches
 
 
-def save_matches():
-    """Save matches to JSON file."""
-    with open(MATCHES_FILE, 'w') as f:
-        json.dump(matches, f, indent=2)
 
 
 def calculate_table(matches_list):
@@ -64,8 +121,8 @@ def calculate_table(matches_list):
     # Get all unique teams from matches
     all_teams = set()
     for match in matches_list:
-        all_teams.add(match[0])  # home team
-        all_teams.add(match[1])  # away team
+        all_teams.add(match[1])  # home team (skip ID at index 0)
+        all_teams.add(match[2])  # away team
 
     # Initialize stats for all teams
     table = {t: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "Pts": 0, "GPM": 0.0, "WP": 0.0}
@@ -73,7 +130,7 @@ def calculate_table(matches_list):
 
     # Process each match
     for match in matches_list:
-        h, a, gh, ga = match
+        match_id, h, a, gh, ga = match
 
         table[h]["P"] += 1
         table[a]["P"] += 1
@@ -122,7 +179,7 @@ def get_matches_dataframe(matches_list):
 
     data = []
     for i, match in enumerate(matches_list, 1):
-        h, a, gh, ga = match
+        match_id, h, a, gh, ga = match
         data.append({
             "#": i,
             "Home": h,
@@ -162,9 +219,24 @@ def add_match(home, away, home_goals, away_goals):
             "Error: Goals must be non-negative!"
         )
 
-    # Add match
-    matches.append([home, away, int(home_goals), int(away_goals)])
-    save_matches()
+    # Add match with scheduler lock for thread-safe writes
+    match_id = str(uuid4())
+    match_data = [match_id, home, away, int(home_goals), int(away_goals)]
+    matches.append(match_data)
+
+    # Persist to dataset
+    with scheduler.lock:
+        with MATCHES_FILE.open("a") as f:
+            record = {
+                "id": match_id,
+                "home": home,
+                "away": away,
+                "home_goals": int(home_goals),
+                "away_goals": int(away_goals),
+                "datetime": datetime.now().isoformat()
+            }
+            json.dump(record, f)
+            f.write("\n")
 
     # Return updated tables and status
     league_table = calculate_table(matches)
@@ -195,18 +267,24 @@ def delete_match(row_number):
 
     # Get match details for logging
     match = matches[row_idx]
-    h, a, gh, ga = match
+    match_id, h, a, gh, ga = match
 
-    # Log deletion
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_entry = f"[{timestamp}] DELETED: {h} vs {a} ({gh}-{ga})\n"
+    # Log deletion with scheduler lock
+    with scheduler.lock:
+        with DELETION_LOG_FILE.open("a") as f:
+            deletion_record = {
+                "match_id": match_id,
+                "home": h,
+                "away": a,
+                "home_goals": gh,
+                "away_goals": ga,
+                "datetime": datetime.now().isoformat()
+            }
+            json.dump(deletion_record, f)
+            f.write("\n")
 
-    with open(DELETION_LOG, 'a') as f:
-        f.write(log_entry)
-
-    # Remove match
+    # Remove match from in-memory list
     matches.pop(row_idx)
-    save_matches()
 
     # Return updated tables and status
     league_table = calculate_table(matches)
