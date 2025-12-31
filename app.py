@@ -26,8 +26,10 @@ IST = timezone(timedelta(hours=5, minutes=30))
 DATASET_DIR = Path("league_data")
 DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
-MATCHES_FILE = DATASET_DIR / f"matches-{uuid4()}.jsonl"
-DELETION_LOG_FILE = DATASET_DIR / f"deletions-{uuid4()}.jsonl"
+# Session-specific file names (generated once per app startup)
+SESSION_ID = str(uuid4())
+MATCHES_FILE = DATASET_DIR / f"matches-{SESSION_ID}.jsonl"
+DELETION_LOG_FILE = DATASET_DIR / f"deletions-{SESSION_ID}.jsonl"
 
 # Initialize HfApi for immediate uploads
 api = HfApi()
@@ -62,25 +64,6 @@ def ensure_repo_exists():
             logger.error(f"✗ Error creating repository: {e}")
             logger.error("Please create the repository manually or check your HF_TOKEN permissions")
 
-
-def initialize_matches_from_league_scores():
-    """Initialize matches from league_scores.py data."""
-    initial_matches = [
-        ["Seelam", "Akhil", 5, 3],
-        ["Seelam", "Kartheek", 4, 4],
-        ["Shiva", "Akhil", 1, 6],
-        ["Shiva", "Kartheek", 8, 3],
-        ["Shiva", "Kartheek", 4, 1],
-        ["Seelam", "Kartheek", 5, 1],
-        ["Seelam", "Kartheek", 1, 6],
-        ["Akhil", "Kartheek", 1, 5],
-        ["Shiva", "Akhil", 3, 1],
-        ["Shiva", "Akhil", 3, 3],
-        ["Seelam", "Kartheek", 1, 3],
-    ]
-    return initial_matches
-
-
 def load_matches():
     """Load matches from HuggingFace dataset repository."""
     global matches
@@ -99,46 +82,6 @@ def load_matches():
         # Filter for files in the data directory
         data_files = [f for f in repo_files if f.startswith(f"{PATH_IN_REPO}/")]
         logger.info(f"→ Found {len(data_files)} files in {PATH_IN_REPO}/ directory")
-
-        if not data_files:
-            # Initialize with data from league_scores.py if no files exist in dataset
-            logger.warning("⚠ No files found in dataset, initializing with default data...")
-            initial_matches = initialize_matches_from_league_scores()
-            logger.info(f"→ Creating {len(initial_matches)} initial matches")
-
-            # Save initial matches
-            for match in initial_matches:
-                match_id = str(uuid4())
-                with file_lock:
-                    with MATCHES_FILE.open("a") as f:
-                        record = {
-                            "id": match_id,
-                            "home": match[0],
-                            "away": match[1],
-                            "home_goals": match[2],
-                            "away_goals": match[3],
-                            "datetime": datetime.now(IST).isoformat()
-                        }
-                        json.dump(record, f)
-                        f.write("\n")
-                        matches.append([match_id, match[0], match[1], match[2], match[3], record["datetime"]])
-
-            # Upload initial matches file immediately
-            try:
-                logger.info(f"→ Uploading initial matches to dataset: {MATCHES_FILE.name}")
-                api.upload_file(
-                    path_or_fileobj=str(MATCHES_FILE),
-                    path_in_repo=f"{PATH_IN_REPO}/{MATCHES_FILE.name}",
-                    repo_id=REPO_ID,
-                    repo_type=REPO_TYPE,
-                )
-                logger.info(f"✓ Initial matches uploaded to dataset successfully")
-            except Exception as e:
-                logger.error(f"✗ Error uploading initial matches: {e}")
-
-            logger.info(f"✓ Initialized with {len(matches)} matches")
-            logger.info("=" * 60)
-            return matches
 
         # Load deleted match IDs from dataset
         deleted_ids = set()
@@ -216,21 +159,6 @@ def load_matches():
 
     except Exception as e:
         logger.error(f"✗ Error accessing dataset repository: {e}")
-        logger.warning("⚠ Falling back to default data...")
-        # Fallback to initial matches if dataset access fails
-        initial_matches = initialize_matches_from_league_scores()
-        for match in initial_matches:
-            match_id = str(uuid4())
-            matches.append([
-                match_id,
-                match[0],
-                match[1],
-                match[2],
-                match[3],
-                datetime.now(IST).isoformat()
-            ])
-        logger.info(f"✓ Initialized with {len(matches)} default matches")
-        logger.info("=" * 60)
 
     return matches
 
@@ -655,6 +583,15 @@ def build_interface():
     # Load initial data
     load_matches()
 
+    def refresh_data():
+        """Reload matches from HuggingFace and return updated tables."""
+        load_matches()
+        return (
+            calculate_table(matches),
+            get_matches_dataframe(matches),
+            calculate_head_to_head(TEAMS[0], TEAMS[1], matches)
+        )
+
     with gr.Blocks(title="League Table Manager") as demo:
         gr.Markdown("# League Table Manager")
 
@@ -813,6 +750,13 @@ def build_interface():
                     inputs=[h2h_team1, h2h_team2],
                     outputs=[h2h_stats]
                 )
+
+        # Load fresh data when the page loads/refreshes
+        demo.load(
+            fn=refresh_data,
+            inputs=[],
+            outputs=[league_table, matches_table, h2h_stats]
+        )
 
     return demo
 
