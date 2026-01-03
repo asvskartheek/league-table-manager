@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cat:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_extensions",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__get_publishable_keys",
+      "mcp__supabase__get_advisors",
+      "mcp__supabase__search_docs",
+      "mcp__supabase__apply_migration",
+      "Bash(uv add:*)",
+      "mcp__supabase__execute_sql",
+      "Bash(SUPABASE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljaGhzdGh4YWVnZXhlb2dvbHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0NjIwNDcsImV4cCI6MjA4MzAzODA0N30.yskUms5aG5J2hc8IpHngItCERvWBd4F6y2Uy0vqSbhM\" uv run python -c \"from app import load_matches; matches = load_matches\\(\\); print\\(f''Loaded {len\\(matches\\)} matches''\\)\")"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}

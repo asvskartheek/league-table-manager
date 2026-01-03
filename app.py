@@ -1,13 +1,10 @@
 """League Table Manager - Interactive Gradio Interface"""
-import json
-import threading
+import os
 import logging
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from uuid import uuid4
 import pandas as pd
 import gradio as gr
-from huggingface_hub import HfApi
+from supabase import create_client, Client
 
 # Configure logging
 logging.basicConfig(
@@ -22,143 +19,48 @@ TEAMS = ["Seelam", "Akhil", "Kartheek", "Shiva"]
 # IST timezone (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# Dataset storage setup
-DATASET_DIR = Path("league_data")
-DATASET_DIR.mkdir(parents=True, exist_ok=True)
+# Supabase configuration
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ichhsthxaegexeogolzz.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-# Session-specific file names (generated once per app startup)
-SESSION_ID = str(uuid4())
-MATCHES_FILE = DATASET_DIR / f"matches-{SESSION_ID}.jsonl"
-DELETION_LOG_FILE = DATASET_DIR / f"deletions-{SESSION_ID}.jsonl"
+# Initialize Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Initialize HfApi for immediate uploads
-api = HfApi()
-REPO_ID = "asvs/league-table-data"
-REPO_TYPE = "dataset"
-PATH_IN_REPO = "data"
-
-# Thread lock for safe concurrent writes
-file_lock = threading.Lock()
-
-# Global matches storage
+# Global matches storage (in-memory cache)
 matches = []
 
 
-def ensure_repo_exists():
-    """Create the HuggingFace dataset repository if it doesn't exist."""
-    try:
-        # Check if repo exists by trying to get repo info
-        api.repo_info(repo_id=REPO_ID, repo_type=REPO_TYPE)
-        logger.info(f"✓ Dataset repository '{REPO_ID}' exists")
-    except Exception:
-        # Repository doesn't exist, create it
-        try:
-            api.create_repo(
-                repo_id=REPO_ID,
-                repo_type=REPO_TYPE,
-                private=True,
-                exist_ok=True
-            )
-            logger.info(f"✓ Created new dataset repository: '{REPO_ID}'")
-        except Exception as e:
-            logger.error(f"✗ Error creating repository: {e}")
-            logger.error("Please create the repository manually or check your HF_TOKEN permissions")
-
 def load_matches():
-    """Load matches from HuggingFace dataset repository."""
+    """Load matches from Supabase database."""
     global matches
     matches = []
 
     logger.info("=" * 60)
-    logger.info("LOADING MATCHES FROM DATASET")
+    logger.info("LOADING MATCHES FROM SUPABASE")
     logger.info("=" * 60)
 
     try:
-        # List all files in the dataset repository
-        logger.info(f"→ Connecting to dataset: {REPO_ID}")
-        repo_files = api.list_repo_files(repo_id=REPO_ID, repo_type=REPO_TYPE)
-        logger.info(f"✓ Connected to dataset repository")
+        logger.info(f"→ Connecting to Supabase: {SUPABASE_URL}")
+        response = supabase.table("matches").select("*").order("datetime", desc=True).execute()
 
-        # Filter for files in the data directory
-        data_files = [f for f in repo_files if f.startswith(f"{PATH_IN_REPO}/")]
-        logger.info(f"→ Found {len(data_files)} files in {PATH_IN_REPO}/ directory")
+        if response.data:
+            for record in response.data:
+                matches.append([
+                    str(record["id"]),
+                    record["home"],
+                    record["away"],
+                    record["home_goals"],
+                    record["away_goals"],
+                    record["datetime"]
+                ])
+            logger.info(f"✓ Successfully loaded {len(matches)} matches from Supabase")
+        else:
+            logger.info("✓ No matches found in database")
 
-        # Load deleted match IDs from dataset
-        deleted_ids = set()
-        deletion_files = [f for f in data_files if "deletions-" in f and f.endswith(".jsonl")]
-        logger.info(f"→ Found {len(deletion_files)} deletion log files")
-
-        for deletion_file_path in deletion_files:
-            try:
-                logger.info(f"  → Downloading: {deletion_file_path}")
-                content = api.hf_hub_download(
-                    repo_id=REPO_ID,
-                    repo_type=REPO_TYPE,
-                    filename=deletion_file_path
-                )
-
-                deletion_count = 0
-                with open(content, "r") as f:
-                    for line in f:
-                        if line.strip():
-                            record = json.loads(line)
-                            deleted_ids.add(record["match_id"])
-                            deletion_count += 1
-
-                logger.info(f"  ✓ Loaded {deletion_count} deletions from {deletion_file_path}")
-            except Exception as e:
-                logger.error(f"  ✗ Error loading deletion file {deletion_file_path}: {e}")
-                continue
-
-        logger.info(f"✓ Total deleted matches: {len(deleted_ids)}")
-
-        # Load all match records from dataset
-        # Use a dictionary to track the latest version of each match (for updates)
-        match_files = [f for f in data_files if "matches-" in f and f.endswith(".jsonl")]
-        logger.info(f"→ Found {len(match_files)} match files")
-
-        match_dict = {}  # match_id -> match_data
-
-        for match_file_path in match_files:
-            try:
-                logger.info(f"  → Downloading: {match_file_path}")
-                content = api.hf_hub_download(
-                    repo_id=REPO_ID,
-                    repo_type=REPO_TYPE,
-                    filename=match_file_path
-                )
-
-                match_count = 0
-                with open(content, "r") as f:
-                    for line in f:
-                        if line.strip():
-                            record = json.loads(line)
-                            match_id = record["id"]
-                            # Skip deleted matches
-                            if match_id not in deleted_ids:
-                                # Store/update match - later updates will overwrite earlier versions
-                                match_dict[match_id] = [
-                                    match_id,
-                                    record["home"],
-                                    record["away"],
-                                    record["home_goals"],
-                                    record["away_goals"],
-                                    record.get("datetime", datetime.now(IST).isoformat())  # Default to now if missing
-                                ]
-                                match_count += 1
-
-                logger.info(f"  ✓ Processed {match_count} match records from {match_file_path}")
-            except Exception as e:
-                logger.error(f"  ✗ Error loading match file {match_file_path}: {e}")
-                continue
-
-        # Convert dictionary to list
-        matches = list(match_dict.values())
-        logger.info(f"✓ Successfully loaded {len(matches)} unique active matches from dataset")
         logger.info("=" * 60)
 
     except Exception as e:
-        logger.error(f"✗ Error accessing dataset repository: {e}")
+        logger.error(f"✗ Error accessing Supabase: {e}")
 
     return matches
 
@@ -346,51 +248,38 @@ def add_match(home, away, home_goals, away_goals):
             "Error: Goals must be non-negative!"
         )
 
-    # Add match with file lock for thread-safe writes
-    match_id = str(uuid4())
-    match_datetime = datetime.now(IST).isoformat()
-    match_data = [match_id, home, away, int(home_goals), int(away_goals), match_datetime]
-    matches.append(match_data)
-
     logger.info(f"→ Adding match: {home} {int(home_goals)} - {int(away_goals)} {away}")
-    logger.info(f"  Match ID: {match_id}")
-    logger.info(f"  Timestamp: {match_datetime}")
 
-    # Persist to dataset
-    with file_lock:
-        with MATCHES_FILE.open("a") as f:
-            record = {
-                "id": match_id,
-                "home": home,
-                "away": away,
-                "home_goals": int(home_goals),
-                "away_goals": int(away_goals),
-                "datetime": match_datetime
-            }
-            json.dump(record, f)
-            f.write("\n")
-
-    logger.info(f"  ✓ Written to local file: {MATCHES_FILE.name}")
-
-    # Upload file immediately to HuggingFace
+    # Insert into Supabase
     try:
-        logger.info(f"  → Uploading to dataset: {REPO_ID}")
-        api.upload_file(
-            path_or_fileobj=str(MATCHES_FILE),
-            path_in_repo=f"{PATH_IN_REPO}/{MATCHES_FILE.name}",
-            repo_id=REPO_ID,
-            repo_type=REPO_TYPE,
-        )
-        logger.info(f"  ✓ Successfully uploaded to HuggingFace dataset")
-        upload_status = " (uploaded to HF)"
+        match_datetime = datetime.now(IST).isoformat()
+        response = supabase.table("matches").insert({
+            "home": home,
+            "away": away,
+            "home_goals": int(home_goals),
+            "away_goals": int(away_goals),
+            "datetime": match_datetime
+        }).execute()
+
+        if response.data:
+            record = response.data[0]
+            match_id = str(record["id"])
+            match_data = [match_id, home, away, int(home_goals), int(away_goals), record["datetime"]]
+            matches.append(match_data)
+            logger.info(f"  ✓ Match ID: {match_id}")
+            logger.info(f"  ✓ Successfully saved to Supabase")
+            status = f"Match added: {home} {int(home_goals)} - {int(away_goals)} {away}"
+        else:
+            logger.error("  ✗ No data returned from insert")
+            status = f"Match added locally but Supabase returned no data"
+
     except Exception as e:
-        logger.error(f"  ✗ Error uploading match: {e}")
-        upload_status = " (upload failed)"
+        logger.error(f"  ✗ Error saving to Supabase: {e}")
+        status = f"Error: Failed to save match - {e}"
 
     # Return updated tables and status
     league_table = calculate_table(matches)
     matches_table = get_matches_dataframe(matches)
-    status = f"Match added: {home} {int(home_goals)} - {int(away_goals)} {away}{upload_status}"
 
     return league_table, matches_table, status
 
@@ -404,63 +293,45 @@ def delete_match(row_number):
             "Error: Please enter a valid row number!"
         )
 
-    # Convert to 0-based index
+    # Sort matches by datetime (most recent first) to match displayed order
+    sorted_matches = sorted(matches, key=lambda x: x[5], reverse=True)
     row_idx = int(row_number) - 1
 
-    if row_idx >= len(matches) or row_idx < 0:
+    if row_idx >= len(sorted_matches) or row_idx < 0:
         return (
             calculate_table(matches),
             get_matches_dataframe(matches),
-            f"Error: Row {int(row_number)} does not exist! Valid rows: 1-{len(matches)}"
+            f"Error: Row {int(row_number)} does not exist! Valid rows: 1-{len(sorted_matches)}"
         )
 
-    # Get match details for logging
-    match = matches[row_idx]
-    match_id, h, a, gh, ga = match[0], match[1], match[2], match[3], match[4]
+    # Get match details
+    sorted_match = sorted_matches[row_idx]
+    match_id, h, a, gh, ga = sorted_match[0], sorted_match[1], sorted_match[2], sorted_match[3], sorted_match[4]
 
     logger.info(f"→ Deleting match row #{int(row_number)}: {h} {gh} - {ga} {a}")
     logger.info(f"  Match ID: {match_id}")
 
-    # Log deletion with file lock
-    deletion_datetime = datetime.now(IST).isoformat()
-    with file_lock:
-        with DELETION_LOG_FILE.open("a") as f:
-            deletion_record = {
-                "match_id": match_id,
-                "home": h,
-                "away": a,
-                "home_goals": gh,
-                "away_goals": ga,
-                "datetime": deletion_datetime
-            }
-            json.dump(deletion_record, f)
-            f.write("\n")
-
-    logger.info(f"  ✓ Written to deletion log: {DELETION_LOG_FILE.name}")
-
-    # Upload deletion log immediately to HuggingFace
+    # Delete from Supabase
     try:
-        logger.info(f"  → Uploading deletion log to dataset: {REPO_ID}")
-        api.upload_file(
-            path_or_fileobj=str(DELETION_LOG_FILE),
-            path_in_repo=f"{PATH_IN_REPO}/{DELETION_LOG_FILE.name}",
-            repo_id=REPO_ID,
-            repo_type=REPO_TYPE,
-        )
-        logger.info(f"  ✓ Successfully uploaded deletion log to HuggingFace dataset")
-        upload_status = " (uploaded to HF)"
-    except Exception as e:
-        logger.error(f"  ✗ Error uploading deletion log: {e}")
-        upload_status = " (upload failed)"
+        response = supabase.table("matches").delete().eq("id", match_id).execute()
+        logger.info(f"  ✓ Successfully deleted from Supabase")
 
-    # Remove match from in-memory list
-    matches.pop(row_idx)
-    logger.info(f"  ✓ Match removed from in-memory storage")
+        # Remove from in-memory list
+        for i, match in enumerate(matches):
+            if match[0] == match_id:
+                matches.pop(i)
+                break
+
+        logger.info(f"  ✓ Match removed from in-memory storage")
+        status = f"Deleted row {int(row_number)}: {h} vs {a} ({gh}-{ga})"
+
+    except Exception as e:
+        logger.error(f"  ✗ Error deleting from Supabase: {e}")
+        status = f"Error: Failed to delete match - {e}"
 
     # Return updated tables and status
     league_table = calculate_table(matches)
     matches_table = get_matches_dataframe(matches)
-    status = f"Deleted row {int(row_number)}: {h} vs {a} ({gh}-{ga}){upload_status}"
 
     return league_table, matches_table, status
 
@@ -474,7 +345,7 @@ def update_match(row_number, new_home, new_away, new_home_goals, new_away_goals)
             "Error: Please enter a valid row number!"
         )
 
-    # Convert to 0-based index (note: we need to work with sorted matches)
+    # Sort matches by datetime (most recent first) to match displayed order
     sorted_matches = sorted(matches, key=lambda x: x[5], reverse=True)
     row_idx = int(row_number) - 1
 
@@ -521,70 +392,51 @@ def update_match(row_number, new_home, new_away, new_home_goals, new_away_goals)
     logger.info(f"  Old: {old_home} {old_home_goals} - {old_away_goals} {old_away}")
     logger.info(f"  New: {new_home} {int(new_home_goals)} - {int(new_away_goals)} {new_away}")
 
-    # Find and update the match in the main matches list
-    for i, match in enumerate(matches):
-        if match[0] == match_id:
-            # Update the match in-place
-            matches[i][1] = new_home
-            matches[i][2] = new_away
-            matches[i][3] = int(new_home_goals)
-            matches[i][4] = int(new_away_goals)
-            # Keep the original timestamp but add update timestamp to the record
-            break
-
-    # Create new JSONL file for the update
-    update_file = DATASET_DIR / f"matches-{uuid4()}.jsonl"
-    update_datetime = datetime.now(IST).isoformat()
-
-    with file_lock:
-        with update_file.open("a") as f:
-            record = {
-                "id": match_id,  # Keep the same ID
-                "home": new_home,
-                "away": new_away,
-                "home_goals": int(new_home_goals),
-                "away_goals": int(new_away_goals),
-                "datetime": matches[i][5],  # Keep original datetime
-                "updated_at": update_datetime  # Add update timestamp
-            }
-            json.dump(record, f)
-            f.write("\n")
-
-    logger.info(f"  ✓ Written update to local file: {update_file.name}")
-
-    # Upload update file immediately to HuggingFace
+    # Update in Supabase
     try:
-        logger.info(f"  → Uploading update to dataset: {REPO_ID}")
-        api.upload_file(
-            path_or_fileobj=str(update_file),
-            path_in_repo=f"{PATH_IN_REPO}/{update_file.name}",
-            repo_id=REPO_ID,
-            repo_type=REPO_TYPE,
-        )
-        logger.info(f"  ✓ Successfully uploaded update to HuggingFace dataset")
-        upload_status = " (uploaded to HF)"
+        update_datetime = datetime.now(IST).isoformat()
+        response = supabase.table("matches").update({
+            "home": new_home,
+            "away": new_away,
+            "home_goals": int(new_home_goals),
+            "away_goals": int(new_away_goals),
+            "updated_at": update_datetime
+        }).eq("id", match_id).execute()
+
+        if response.data:
+            # Update in-memory cache
+            for i, match in enumerate(matches):
+                if match[0] == match_id:
+                    matches[i][1] = new_home
+                    matches[i][2] = new_away
+                    matches[i][3] = int(new_home_goals)
+                    matches[i][4] = int(new_away_goals)
+                    break
+
+            logger.info(f"  ✓ Successfully updated in Supabase")
+            status = f"Updated row {int(row_number)}: {new_home} {int(new_home_goals)} - {int(new_away_goals)} {new_away}"
+        else:
+            logger.error("  ✗ No data returned from update")
+            status = f"Error: Update returned no data"
+
     except Exception as e:
-        logger.error(f"  ✗ Error uploading update: {e}")
-        upload_status = " (upload failed)"
+        logger.error(f"  ✗ Error updating in Supabase: {e}")
+        status = f"Error: Failed to update match - {e}"
 
     # Return updated tables and status
     league_table = calculate_table(matches)
     matches_table = get_matches_dataframe(matches)
-    status = f"Updated row {int(row_number)}: {new_home} {int(new_home_goals)} - {int(new_away_goals)} {new_away}{upload_status}"
 
     return league_table, matches_table, status
 
 
 def build_interface():
     """Build and return the Gradio interface."""
-    # Ensure HuggingFace repository exists
-    ensure_repo_exists()
-
-    # Load initial data
+    # Load initial data from Supabase
     load_matches()
 
     def refresh_data():
-        """Reload matches from HuggingFace and return updated tables."""
+        """Reload matches from Supabase and return updated tables."""
         load_matches()
         return (
             calculate_table(matches),
