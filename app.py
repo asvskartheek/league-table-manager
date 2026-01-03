@@ -13,8 +13,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Constants
-TEAMS = ["Seelam", "Akhil", "Kartheek", "Shiva"]
+# Global matches storage (will be populated from database)
+# Teams will be derived from match data
 
 # IST timezone (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -64,6 +64,14 @@ def load_matches():
 
     return matches
 
+
+def get_teams_from_matches():
+    """Extract unique team names from matches data."""
+    teams = set()
+    for match in matches:
+        teams.add(match[1])  # home team
+        teams.add(match[2])  # away team
+    return sorted(list(teams)) if teams else []
 
 
 
@@ -435,13 +443,18 @@ def build_interface():
     # Load initial data from Supabase
     load_matches()
 
+    # Get initial teams from loaded data
+    initial_teams = get_teams_from_matches()
+
     def refresh_data():
         """Reload matches from Supabase and return updated tables."""
         load_matches()
+        teams = get_teams_from_matches()
+        h2h_table = calculate_head_to_head(teams[0], teams[1], matches) if len(teams) >= 2 else pd.DataFrame()
         return (
             calculate_table(matches),
             get_matches_dataframe(matches),
-            calculate_head_to_head(TEAMS[0], TEAMS[1], matches)
+            h2h_table
         )
 
     with gr.Blocks(title="League Table Manager") as demo:
@@ -453,15 +466,15 @@ def build_interface():
                     # Left Column - Input Form
                     with gr.Column(scale=1):
                         home_team = gr.Dropdown(
-                            choices=TEAMS,
+                            choices=initial_teams,
                             label="Home Team",
-                            value=TEAMS[0],
+                            value=initial_teams[0] if initial_teams else None,
                             allow_custom_value=True
                         )
                         away_team = gr.Dropdown(
-                            choices=TEAMS,
+                            choices=initial_teams,
                             label="Away Team",
-                            value=TEAMS[1],
+                            value=initial_teams[1] if len(initial_teams) > 1 else None,
                             allow_custom_value=True
                         )
 
@@ -521,12 +534,12 @@ def build_interface():
 
                         with gr.Row():
                             update_home_team = gr.Dropdown(
-                                choices=TEAMS,
+                                choices=initial_teams,
                                 label="New Home Team",
                                 allow_custom_value=True
                             )
                             update_away_team = gr.Dropdown(
-                                choices=TEAMS,
+                                choices=initial_teams,
                                 label="New Away Team",
                                 allow_custom_value=True
                             )
@@ -571,21 +584,21 @@ def build_interface():
 
                 with gr.Row():
                     h2h_team1 = gr.Dropdown(
-                        choices=TEAMS,
+                        choices=initial_teams,
                         label="Team 1",
-                        value=TEAMS[0],
+                        value=initial_teams[0] if initial_teams else None,
                         allow_custom_value=True
                     )
                     h2h_team2 = gr.Dropdown(
-                        choices=TEAMS,
+                        choices=initial_teams,
                         label="Team 2",
-                        value=TEAMS[1],
+                        value=initial_teams[1] if len(initial_teams) > 1 else None,
                         allow_custom_value=True
                     )
 
                 h2h_stats = gr.Dataframe(
                     label="Head-to-Head Stats",
-                    value=calculate_head_to_head(TEAMS[0], TEAMS[1], matches),
+                    value=calculate_head_to_head(initial_teams[0], initial_teams[1], matches) if len(initial_teams) >= 2 else pd.DataFrame(),
                     interactive=False,
                     wrap=True
                 )
