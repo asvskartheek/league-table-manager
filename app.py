@@ -222,6 +222,17 @@ def get_matches_dataframe(matches_list):
             # by normalizing microseconds to 6 digits
             dt_normalized = re.sub(r'\.(\d+)', lambda m: '.' + m.group(1).ljust(6, '0')[:6], dt)
             dt_obj = datetime.fromisoformat(dt_normalized)
+        
+        # Convert to IST timezone
+        # If datetime is naive (no timezone), assume it's UTC and convert to IST
+        # If datetime has timezone info, convert it to IST
+        if dt_obj.tzinfo is None:
+            # Naive datetime - assume UTC and convert to IST
+            dt_obj = dt_obj.replace(tzinfo=timezone.utc).astimezone(IST)
+        else:
+            # Aware datetime - convert to IST
+            dt_obj = dt_obj.astimezone(IST)
+        
         formatted_dt = dt_obj.strftime("%d-%m-%y %I:%M %p IST")
 
         data.append({
