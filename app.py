@@ -1,5 +1,6 @@
 """League Table Manager - Interactive Gradio Interface"""
 import os
+import re
 import logging
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -213,7 +214,14 @@ def get_matches_dataframe(matches_list):
         match_id, h, a, gh, ga, dt = match
 
         # Format datetime as DD-MM-YY HH:MM AM/PM IST
-        dt_obj = datetime.fromisoformat(dt)
+        # Handle ISO format strings with varying microsecond precision
+        try:
+            dt_obj = datetime.fromisoformat(dt)
+        except ValueError:
+            # Fallback: handle timestamps with non-standard microsecond precision
+            # by normalizing microseconds to 6 digits
+            dt_normalized = re.sub(r'\.(\d+)', lambda m: '.' + m.group(1).ljust(6, '0')[:6], dt)
+            dt_obj = datetime.fromisoformat(dt_normalized)
         formatted_dt = dt_obj.strftime("%d-%m-%y %I:%M %p IST")
 
         data.append({
