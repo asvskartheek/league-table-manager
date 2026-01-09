@@ -132,34 +132,35 @@ def calculate_table(matches_list):
     return df
 
 
-def calculate_head_to_head(team1, team2, matches_list):
-    """Calculate head-to-head stats between two teams."""
-    if not team1 or not team2 or team1 == team2:
-        return pd.DataFrame()
+def get_head_to_head_data(team1, team2, matches_list):
+    """Get both head-to-head stats and matches between two teams in one pass."""
+    empty_stats = pd.DataFrame()
+    empty_matches = pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
 
-    # Initialize stats for both teams
+    if not team1 or not team2 or team1 == team2:
+        return empty_stats, empty_matches
+
+    # Filter matches between these two teams (single pass)
+    h2h_matches = []
     stats = {
         team1: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "WP": 0.0},
         team2: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "WP": 0.0}
     }
 
-    # Process matches between these two teams
     for match in matches_list:
         h, a, gh, ga = match[1], match[2], match[3], match[4]
 
-        # Check if this match involves both teams
         if (h == team1 and a == team2) or (h == team2 and a == team1):
-            # Update stats for home team
+            h2h_matches.append(match)
+
+            # Update stats
             stats[h]["P"] += 1
             stats[h]["GF"] += gh
             stats[h]["GA"] += ga
-
-            # Update stats for away team
             stats[a]["P"] += 1
             stats[a]["GF"] += ga
             stats[a]["GA"] += gh
 
-            # Update W/D/L
             if gh > ga:
                 stats[h]["W"] += 1
                 stats[a]["L"] += 1
@@ -175,30 +176,35 @@ def calculate_head_to_head(team1, team2, matches_list):
         if stats[team]["P"] > 0:
             stats[team]["WP"] = round((stats[team]["W"] / stats[team]["P"]) * 100, 2)
 
-    # Create a 2-column DataFrame
-    data = {
+    # Create stats DataFrame
+    stats_df = pd.DataFrame({
         "Stat": ["P", "W", "D", "L", "Win %", "GF", "GA"],
         team1: [
-            stats[team1]["P"],
-            stats[team1]["W"],
-            stats[team1]["D"],
-            stats[team1]["L"],
-            f"{stats[team1]['WP']}%",
-            stats[team1]["GF"],
-            stats[team1]["GA"]
+            stats[team1]["P"], stats[team1]["W"], stats[team1]["D"], stats[team1]["L"],
+            f"{stats[team1]['WP']}%", stats[team1]["GF"], stats[team1]["GA"]
         ],
         team2: [
-            stats[team2]["P"],
-            stats[team2]["W"],
-            stats[team2]["D"],
-            stats[team2]["L"],
-            f"{stats[team2]['WP']}%",
-            stats[team2]["GF"],
-            stats[team2]["GA"]
+            stats[team2]["P"], stats[team2]["W"], stats[team2]["D"], stats[team2]["L"],
+            f"{stats[team2]['WP']}%", stats[team2]["GF"], stats[team2]["GA"]
         ]
-    }
+    })
 
-    return pd.DataFrame(data)
+    # Create matches DataFrame (reuse existing function)
+    matches_df = get_matches_dataframe(h2h_matches)
+
+    return stats_df, matches_df
+
+
+def calculate_head_to_head(team1, team2, matches_list):
+    """Calculate head-to-head stats between two teams."""
+    stats_df, _ = get_head_to_head_data(team1, team2, matches_list)
+    return stats_df
+
+
+def get_head_to_head_matches(team1, team2, matches_list):
+    """Get all matches between two teams as a DataFrame."""
+    _, matches_df = get_head_to_head_data(team1, team2, matches_list)
+    return matches_df
 
 
 def get_matches_dataframe(matches_list):
@@ -469,11 +475,16 @@ def build_interface():
         """Reload matches from Supabase and return updated tables."""
         load_matches()
         teams = get_teams_from_matches()
-        h2h_table = calculate_head_to_head(teams[0], teams[1], matches) if len(teams) >= 2 else pd.DataFrame()
+        if len(teams) >= 2:
+            h2h_table, h2h_matches_table = get_head_to_head_data(teams[0], teams[1], matches)
+        else:
+            h2h_table = pd.DataFrame()
+            h2h_matches_table = pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
         return (
             calculate_table(matches),
             get_matches_dataframe(matches),
-            h2h_table
+            h2h_table,
+            h2h_matches_table
         )
 
     with gr.Blocks(title="League Table Manager") as demo:
@@ -615,31 +626,50 @@ def build_interface():
                         allow_custom_value=True
                     )
 
+                # Pre-compute initial h2h data (single pass)
+                if len(initial_teams) >= 2:
+                    initial_h2h_stats, initial_h2h_matches = get_head_to_head_data(initial_teams[0], initial_teams[1], matches)
+                else:
+                    initial_h2h_stats = pd.DataFrame()
+                    initial_h2h_matches = pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
+
                 h2h_stats = gr.Dataframe(
                     label="Head-to-Head Stats",
-                    value=calculate_head_to_head(initial_teams[0], initial_teams[1], matches) if len(initial_teams) >= 2 else pd.DataFrame(),
+                    value=initial_h2h_stats,
                     interactive=False,
                     wrap=True
                 )
 
-                # Event handler for team selection
+                gr.Markdown("### Match History")
+
+                h2h_matches = gr.Dataframe(
+                    label="Matches Between Teams",
+                    value=initial_h2h_matches,
+                    interactive=False,
+                    wrap=True
+                )
+
+                # Event handler for team selection (single pass for efficiency)
+                def update_h2h_tables(t1, t2):
+                    return get_head_to_head_data(t1, t2, matches)
+
                 h2h_team1.change(
-                    fn=lambda t1, t2: calculate_head_to_head(t1, t2, matches),
+                    fn=update_h2h_tables,
                     inputs=[h2h_team1, h2h_team2],
-                    outputs=[h2h_stats]
+                    outputs=[h2h_stats, h2h_matches]
                 )
 
                 h2h_team2.change(
-                    fn=lambda t1, t2: calculate_head_to_head(t1, t2, matches),
+                    fn=update_h2h_tables,
                     inputs=[h2h_team1, h2h_team2],
-                    outputs=[h2h_stats]
+                    outputs=[h2h_stats, h2h_matches]
                 )
 
         # Load fresh data when the page loads/refreshes
         demo.load(
             fn=refresh_data,
             inputs=[],
-            outputs=[league_table, matches_table, h2h_stats]
+            outputs=[league_table, matches_table, h2h_stats, h2h_matches]
         )
 
     return demo
