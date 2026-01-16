@@ -85,7 +85,7 @@ def calculate_table(matches_list):
         all_teams.add(match[2])  # away team
 
     # Initialize stats for all teams
-    table = {t: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "Pts": 0, "GPM": 0.0, "WP": 0.0}
+    table = {t: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "Pts": 0, "GPM": 0.0, "GAM": 0.0, "GDM": 0.0, "WP": 0.0}
              for t in all_teams}
 
     # Process each match
@@ -117,6 +117,8 @@ def calculate_table(matches_list):
     for t in all_teams:
         if table[t]["P"] > 0:
             table[t]["GPM"] = round(table[t]["GF"] / table[t]["P"], 2)
+            table[t]["GAM"] = round(table[t]["GA"] / table[t]["P"], 2)
+            table[t]["GDM"] = round((table[t]["GF"] - table[t]["GA"]) / table[t]["P"], 2)
             table[t]["WP"] = round((table[t]["W"] / table[t]["P"]) * 100, 2)
 
     # Create DataFrame
@@ -126,7 +128,7 @@ def calculate_table(matches_list):
     df.rename(columns={"index": "Team"}, inplace=True)
 
     # Sort by WP descending (as per requirements)
-    df = df[["Team", "WP", "GPM", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"]]
+    df = df[["Team", "WP", "GPM", "GAM", "GDM", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"]]
     df = df.sort_values(by=["WP"], ascending=False)
 
     return df
