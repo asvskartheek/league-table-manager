@@ -85,7 +85,8 @@ def calculate_table(matches_list):
         all_teams.add(match[2])  # away team
 
     # Initialize stats for all teams
-    table = {t: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "Pts": 0, "GPM": 0.0, "GAM": 0.0, "GDM": 0.0, "WP": 0.0}
+    # Added #WW (White Washes) and #5GM (5 Goal Matches)
+    table = {t: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "Pts": 0, "GPM": 0.0, "GAM": 0.0, "GDM": 0.0, "WP": 0.0, "#WW": 0, "#5GM": 0}
              for t in all_teams}
 
     # Process each match
@@ -99,14 +100,26 @@ def calculate_table(matches_list):
         table[a]["GF"] += ga
         table[a]["GA"] += gh
 
+        # Track #5GM (5 Goal Matches) - matches where player scores 5+
+        if gh >= 5:
+            table[h]["#5GM"] += 1
+        if ga >= 5:
+            table[a]["#5GM"] += 1
+
         if gh > ga:
             table[h]["W"] += 1
             table[a]["L"] += 1
             table[h]["Pts"] += 3
+            # Track White Wash - wins where opponent scores 0
+            if ga == 0:
+                table[h]["#WW"] += 1
         elif gh < ga:
             table[a]["W"] += 1
             table[h]["L"] += 1
             table[a]["Pts"] += 3
+            # Track White Wash - wins where opponent scores 0
+            if gh == 0:
+                table[a]["#WW"] += 1
         else:
             table[h]["D"] += 1
             table[a]["D"] += 1
@@ -128,10 +141,73 @@ def calculate_table(matches_list):
     df.rename(columns={"index": "Team"}, inplace=True)
 
     # Sort by WP descending (as per requirements)
-    df = df[["Team", "WP", "GPM", "GAM", "GDM", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"]]
+    # Added #WW and #5GM columns
+    df = df[["Team", "WP", "GPM", "GAM", "GDM", "P", "W", "D", "L", "GF", "GA", "GD", "Pts", "#WW", "#5GM"]]
     df = df.sort_values(by=["WP"], ascending=False)
 
     return df
+
+
+def calculate_league_stats(matches_list):
+    """Calculate league-level statistics from matches list."""
+    if not matches_list:
+        return pd.DataFrame({
+            "Stat": ["Highest Aggregate Goals", "Biggest Goal Margin", "Most Goals by Any Side"],
+            "Value": ["-", "-", "-"],
+            "Match": ["-", "-", "-"]
+        })
+
+    highest_aggregate = 0
+    highest_aggregate_match = None
+    biggest_margin = 0
+    biggest_margin_match = None
+    most_goals_one_side = 0
+    most_goals_one_side_match = None
+    most_goals_one_side_team = None
+
+    for match in matches_list:
+        match_id, h, a, gh, ga, dt = match[0], match[1], match[2], match[3], match[4], match[5]
+        
+        # Calculate aggregate goals
+        aggregate = gh + ga
+        if aggregate > highest_aggregate:
+            highest_aggregate = aggregate
+            highest_aggregate_match = match
+        
+        # Calculate goal margin
+        margin = abs(gh - ga)
+        if margin > biggest_margin:
+            biggest_margin = margin
+            biggest_margin_match = match
+        
+        # Track most goals by any side
+        if gh > most_goals_one_side:
+            most_goals_one_side = gh
+            most_goals_one_side_match = match
+            most_goals_one_side_team = h
+        if ga > most_goals_one_side:
+            most_goals_one_side = ga
+            most_goals_one_side_match = match
+            most_goals_one_side_team = a
+
+    # Format match info
+    def format_match(m):
+        if m is None:
+            return "-"
+        return f"{m[1]} {m[3]} - {m[4]} {m[2]}"
+    
+    def format_match_with_team(m, team):
+        if m is None:
+            return "-"
+        return f"{team} ({m[1]} {m[3]} - {m[4]} {m[2]})"
+
+    stats_df = pd.DataFrame({
+        "Stat": ["Highest Aggregate Goals", "Biggest Goal Margin", "Most Goals by Any Side"],
+        "Value": [highest_aggregate, biggest_margin, most_goals_one_side],
+        "Match": [format_match(highest_aggregate_match), format_match(biggest_margin_match), format_match_with_team(most_goals_one_side_match, most_goals_one_side_team)]
+    })
+
+    return stats_df
 
 
 def get_head_to_head_data(team1, team2, matches_list):
@@ -665,6 +741,17 @@ def build_interface():
                     fn=update_h2h_tables,
                     inputs=[h2h_team1, h2h_team2],
                     outputs=[h2h_stats, h2h_matches]
+                )
+
+            with gr.Tab("League Stats"):
+                gr.Markdown("### League Statistics")
+                gr.Markdown("Overall league-level records and statistics.")
+
+                league_stats_table = gr.Dataframe(
+                    label="League Records",
+                    value=calculate_league_stats(matches),
+                    interactive=False,
+                    wrap=True
                 )
 
         # Load fresh data when the page loads/refreshes
