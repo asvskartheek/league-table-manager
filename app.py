@@ -611,9 +611,11 @@ def render_h2h_stats_html(team1, team2, matches_list):
         team2: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0},
     }
 
+    h2h_matches = []
     for match in matches_list:
         h, a, gh, ga = match[1], match[2], match[3], match[4]
         if (h == team1 and a == team2) or (h == team2 and a == team1):
+            h2h_matches.append(match)
             stats[h]["P"] += 1
             stats[h]["GF"] += gh
             stats[h]["GA"] += ga
@@ -635,56 +637,164 @@ def render_h2h_stats_html(team1, team2, matches_list):
     if total_played == 0:
         return f'<div style="padding:24px; text-align:center; color:#64748b; font-family:Inter,sans-serif;">No matches between {team1} and {team2} yet.</div>'
 
+    w1 = stats[team1]['W']
+    w2 = stats[team2]['W']
+    draws = stats[team1]['D']
+
+    # Tri-color bar segments
+    p1 = round(w1 / total_played * 100)
+    pd = round(draws / total_played * 100)
+    p2 = 100 - p1 - pd
+
+    # Form guide: last 5 H2H results (team1 perspective)
+    last5 = sorted(h2h_matches, key=lambda x: x[5], reverse=True)[:5]
+    form_dots = ""
+    for m in reversed(last5):
+        mh, ma, mgh, mga = m[1], m[2], m[3], m[4]
+        if mgh == mga:
+            dot_color, dot_label = "#eab308", "D"
+        elif (mh == team1 and mgh > mga) or (ma == team1 and mga > mgh):
+            dot_color, dot_label = "#3b82f6", "W"
+        else:
+            dot_color, dot_label = "#ef4444", "L"
+        form_dots += f'<span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:{dot_color};color:white;font-size:0.68rem;font-weight:800;margin:0 3px;">{dot_label}</span>'
+
+    # H2H records
+    if h2h_matches:
+        best_agg = max(h2h_matches, key=lambda x: x[3] + x[4])
+        best_margin_m = max(h2h_matches, key=lambda x: abs(x[3] - x[4]))
+        last_m = sorted(h2h_matches, key=lambda x: x[5])[-1]
+        best_agg_str = f"{best_agg[1]} {best_agg[3]}–{best_agg[4]} {best_agg[2]}"
+        margin_val = abs(best_margin_m[3] - best_margin_m[4])
+        margin_str = f"{best_margin_m[1]} {best_margin_m[3]}–{best_margin_m[4]} {best_margin_m[2]}"
+        last_mh, last_ma, last_mgh, last_mga = last_m[1], last_m[2], last_m[3], last_m[4]
+        if last_mgh > last_mga:
+            last_winner = last_mh
+        elif last_mga > last_mgh:
+            last_winner = last_ma
+        else:
+            last_winner = "Draw"
+        last_str = f"{last_mh} {last_mgh}–{last_mga} {last_ma}"
+    else:
+        best_agg_str = margin_str = last_str = "—"
+        margin_val = 0
+        last_winner = "—"
+
+    mini_card = lambda icon, label, val, sub: f"""
+    <div style="background:#0f172a; border-radius:10px; padding:14px 12px; border:1px solid #334155; text-align:center; flex:1; min-width:130px;">
+        <div style="font-size:1.3rem; margin-bottom:4px;">{icon}</div>
+        <div style="color:#64748b; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">{label}</div>
+        <div style="color:#f1f5f9; font-size:1.3rem; font-weight:800; line-height:1;">{val}</div>
+        <div style="color:#94a3b8; font-size:0.72rem; margin-top:4px;">{sub}</div>
+    </div>"""
+
     def wp(t):
         p = stats[t]["P"]
         return round((stats[t]["W"] / p) * 100, 1) if p > 0 else 0.0
 
     wp1, wp2 = wp(team1), wp(team2)
-    bar1 = wp1
-    bar2 = wp2
 
-    def stat_row(label, v1, v2):
+    def stat_row(label, v1, v2, lower_better=False):
         if isinstance(v1, float) or isinstance(v2, float):
             v1s, v2s = f"{v1}%", f"{v2}%"
         else:
             v1s, v2s = str(v1), str(v2)
-        c1 = "#22c55e" if v1 > v2 else ("#ef4444" if v1 < v2 else "#94a3b8")
-        c2 = "#22c55e" if v2 > v1 else ("#ef4444" if v2 < v1 else "#94a3b8")
+        if lower_better:
+            better1 = v1 < v2
+            better2 = v2 < v1
+        else:
+            better1 = v1 > v2
+            better2 = v2 > v1
+        c1 = "#3b82f6" if better1 else ("#94a3b8" if v1 == v2 else "#64748b")
+        c2 = "#ef4444" if better2 else ("#94a3b8" if v1 == v2 else "#64748b")
+        fw1 = "800" if better1 else "500"
+        fw2 = "800" if better2 else "500"
         return f"""
-        <tr style="border-bottom:1px solid #334155;">
-            <td style="padding:8px 12px; color:{c1}; font-weight:700; text-align:right; font-size:1rem;">{v1s}</td>
-            <td style="padding:8px 16px; text-align:center; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">{label}</td>
-            <td style="padding:8px 12px; color:{c2}; font-weight:700; font-size:1rem;">{v2s}</td>
-        </tr>
-        """
+        <tr style="border-bottom:1px solid #1e293b;">
+            <td style="padding:10px 16px; color:{c1}; font-weight:{fw1}; text-align:right; font-size:1rem; width:35%;">{v1s}</td>
+            <td style="padding:10px 8px; text-align:center; color:#475569; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em;">{label}</td>
+            <td style="padding:10px 16px; color:{c2}; font-weight:{fw2}; font-size:1rem; width:35%;">{v2s}</td>
+        </tr>"""
+
+    # Determine overall leader
+    if w1 > w2:
+        leader_txt = f"<span style='color:#3b82f6;font-weight:800;'>{team1}</span> leads"
+    elif w2 > w1:
+        leader_txt = f"<span style='color:#ef4444;font-weight:800;'>{team2}</span> leads"
+    else:
+        leader_txt = "<span style='color:#eab308;font-weight:700;'>All Square</span>"
 
     return f"""
-    <div style="font-family:Inter,ui-sans-serif,sans-serif; border-radius:12px; border:1px solid #334155; overflow:hidden;">
-        <div style="background:#0f172a; padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
-            <div style="font-weight:700; color:#f1f5f9; font-size:1.1rem; text-align:left; flex:1;">{team1}</div>
-            <div style="color:#64748b; font-size:0.8rem; padding:0 16px;">{total_played} matches</div>
-            <div style="font-weight:700; color:#f1f5f9; font-size:1.1rem; text-align:right; flex:1;">{team2}</div>
-        </div>
-        <div style="background:#1e293b; padding:12px 20px; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:0.7rem; color:#22c55e; font-weight:700; min-width:36px; text-align:right;">{bar1}%</span>
-            <div style="flex:1; background:#334155; border-radius:4px; height:8px; overflow:hidden;">
-                <div style="width:{bar1}%; background:#22c55e; height:8px; border-radius:4px 0 0 4px;"></div>
+    <div style="font-family:Inter,ui-sans-serif,sans-serif; border-radius:14px; border:1px solid #334155; overflow:hidden; background:#1e293b;">
+
+        <!-- Hero Header -->
+        <div style="background:linear-gradient(135deg,#0f1f3d 0%,#0f172a 50%,#1f0f0f 100%); padding:24px 28px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <div style="text-align:left; flex:1;">
+                    <div style="color:#3b82f6; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:4px;">Team 1</div>
+                    <div style="color:#f1f5f9; font-size:1.5rem; font-weight:800;">{team1}</div>
+                    <div style="color:#3b82f6; font-size:2.5rem; font-weight:900; line-height:1;">{w1}</div>
+                    <div style="color:#64748b; font-size:0.7rem;">wins</div>
+                </div>
+                <div style="text-align:center; padding:0 20px;">
+                    <div style="color:#475569; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:6px;">vs</div>
+                    <div style="color:#eab308; font-size:1.6rem; font-weight:800;">{draws}</div>
+                    <div style="color:#64748b; font-size:0.7rem;">draws</div>
+                    <div style="margin-top:10px; font-size:0.72rem;">{leader_txt}</div>
+                </div>
+                <div style="text-align:right; flex:1;">
+                    <div style="color:#ef4444; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:4px;">Team 2</div>
+                    <div style="color:#f1f5f9; font-size:1.5rem; font-weight:800;">{team2}</div>
+                    <div style="color:#ef4444; font-size:2.5rem; font-weight:900; line-height:1;">{w2}</div>
+                    <div style="color:#64748b; font-size:0.7rem;">wins</div>
+                </div>
             </div>
-            <div style="flex:1; background:#334155; border-radius:4px; height:8px; overflow:hidden; direction:rtl;">
-                <div style="width:{bar2}%; background:#22c55e; height:8px; border-radius:4px 0 0 4px;"></div>
+
+            <!-- Tri-color bar -->
+            <div style="border-radius:8px; overflow:hidden; height:14px; display:flex; margin-bottom:6px;">
+                <div style="width:{p1}%; background:#3b82f6; transition:width 0.3s;"></div>
+                <div style="width:{pd}%; background:#eab308;"></div>
+                <div style="width:{p2}%; background:#ef4444;"></div>
             </div>
-            <span style="font-size:0.7rem; color:#22c55e; font-weight:700; min-width:36px;">{bar2}%</span>
+            <div style="display:flex; justify-content:space-between; font-size:0.68rem; color:#64748b;">
+                <span style="color:#3b82f6;">{p1}% ({w1}W)</span>
+                <span style="color:#eab308;">{pd}% ({draws}D) · {total_played} played</span>
+                <span style="color:#ef4444;">({w2}W) {p2}%</span>
+            </div>
         </div>
-        <div style="background:#1e293b;">
-            <table style="width:100%; border-collapse:collapse;">
+
+        <!-- Form Guide -->
+        <div style="background:#0f172a; padding:12px 20px; display:flex; align-items:center; gap:10px; border-top:1px solid #1e293b;">
+            <span style="color:#475569; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; white-space:nowrap;">Last {len(last5)}</span>
+            <div style="display:flex; align-items:center;">{form_dots}</div>
+            <span style="color:#475569; font-size:0.68rem; margin-left:4px;">← most recent</span>
+        </div>
+
+        <!-- H2H Records -->
+        <div style="padding:16px 16px 8px; display:flex; gap:10px; flex-wrap:wrap;">
+            {mini_card('🔥', 'Highest Scoring', best_agg[3]+best_agg[4] if h2h_matches else 0, best_agg_str)}
+            {mini_card('💥', 'Biggest Margin', margin_val, margin_str)}
+            {mini_card('📅', 'Last Match', last_winner, last_str)}
+        </div>
+
+        <!-- Stats Table -->
+        <div style="padding:8px 16px 16px;">
+            <table style="width:100%; border-collapse:collapse; background:#0f172a; border-radius:10px; overflow:hidden;">
+                <thead>
+                    <tr style="background:#0a1020;">
+                        <th style="padding:8px 16px; text-align:right; color:#3b82f6; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; width:35%;">{team1}</th>
+                        <th style="padding:8px; text-align:center; color:#475569; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.06em;"></th>
+                        <th style="padding:8px 16px; text-align:left; color:#ef4444; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; width:35%;">{team2}</th>
+                    </tr>
+                </thead>
                 <tbody>
-                    {stat_row('Played', stats[team1]['P'], stats[team2]['P'])}
-                    {stat_row('Won', stats[team1]['W'], stats[team2]['W'])}
-                    {stat_row('Drawn', stats[team1]['D'], stats[team2]['D'])}
-                    {stat_row('Lost', stats[team1]['L'], stats[team2]['L'])}
+                    {stat_row('Won', w1, w2)}
+                    {stat_row('Drawn', draws, draws)}
+                    {stat_row('Lost', stats[team1]['L'], stats[team2]['L'], lower_better=True)}
                     {stat_row('Win %', wp1, wp2)}
                     {stat_row('Goals For', stats[team1]['GF'], stats[team2]['GF'])}
-                    {stat_row('Goals Against', stats[team1]['GA'], stats[team2]['GA'])}
+                    {stat_row('Goals Against', stats[team1]['GA'], stats[team2]['GA'], lower_better=True)}
+                    {stat_row('GPM', round(stats[team1]['GF']/total_played,2), round(stats[team2]['GF']/total_played,2))}
                 </tbody>
             </table>
         </div>
