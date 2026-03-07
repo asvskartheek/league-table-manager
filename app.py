@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import gradio as gr
+from gradio.themes.base import Base
+from gradio.themes.utils import colors, fonts, sizes
 from supabase import create_client, Client
 
 # Configure logging
@@ -13,9 +15,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Global matches storage (will be populated from database)
-# Teams will be derived from match data
 
 # IST timezone (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -30,6 +29,153 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Global matches storage (in-memory cache)
 matches = []
 
+
+# ─────────────────────────────────────────────
+# Theme
+# ─────────────────────────────────────────────
+
+class LeagueTheme(Base):
+    def __init__(self):
+        super().__init__(
+            primary_hue=colors.green,
+            secondary_hue=colors.emerald,
+            neutral_hue=colors.slate,
+            spacing_size=sizes.spacing_md,
+            radius_size=sizes.radius_lg,
+            text_size=sizes.text_md,
+            font=(
+                fonts.GoogleFont("Inter"),
+                "ui-sans-serif",
+                "system-ui",
+                "sans-serif",
+            ),
+        )
+        super().set(
+            body_background_fill="#0f172a",
+            body_background_fill_dark="#0f172a",
+            block_background_fill="#1e293b",
+            block_background_fill_dark="#1e293b",
+            block_border_color="#334155",
+            block_border_color_dark="#334155",
+            block_border_width="1px",
+            block_radius="12px",
+            block_shadow="0 4px 24px rgba(0,0,0,0.4)",
+            body_text_color="#e2e8f0",
+            body_text_color_dark="#e2e8f0",
+            block_label_text_color="#94a3b8",
+            block_label_text_weight="600",
+            input_background_fill="#0f172a",
+            input_background_fill_dark="#0f172a",
+            input_border_color="#334155",
+            input_border_color_dark="#334155",
+            input_border_color_focus="*primary_500",
+            button_primary_background_fill="*primary_600",
+            button_primary_background_fill_hover="*primary_500",
+            button_primary_text_color="white",
+            button_primary_border_color="transparent",
+            button_secondary_background_fill="#334155",
+            button_secondary_background_fill_hover="#475569",
+            button_secondary_text_color="#e2e8f0",
+            border_color_primary="*primary_600",
+        )
+
+
+# ─────────────────────────────────────────────
+# CSS
+# ─────────────────────────────────────────────
+
+CSS = """
+/* Tab bar */
+.tab-nav button {
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #94a3b8 !important;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+.tab-nav button.selected {
+    color: #22c55e !important;
+    border-bottom: 2px solid #22c55e !important;
+    background: transparent !important;
+}
+
+/* Dataframe table headers */
+.gr-dataframe th, table th {
+    background-color: #0f172a !important;
+    color: #22c55e !important;
+    font-weight: 700 !important;
+    font-size: 0.72rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    padding: 10px 8px !important;
+    border-bottom: 2px solid #22c55e !important;
+}
+.gr-dataframe td, table td {
+    background-color: #1e293b !important;
+    color: #e2e8f0 !important;
+    padding: 8px !important;
+    border-bottom: 1px solid #334155 !important;
+    font-size: 0.85rem;
+}
+.gr-dataframe tr:hover td, table tr:hover td {
+    background-color: #263548 !important;
+}
+
+/* Buttons */
+button.primary, .primary {
+    background: linear-gradient(135deg, #16a34a, #15803d) !important;
+    color: white !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    border: none !important;
+    box-shadow: 0 4px 12px rgba(22,163,74,0.3) !important;
+    transition: all 0.2s !important;
+}
+button.primary:hover {
+    background: linear-gradient(135deg, #22c55e, #16a34a) !important;
+    box-shadow: 0 6px 16px rgba(34,197,94,0.4) !important;
+    transform: translateY(-1px);
+}
+button.stop {
+    background: #7f1d1d !important;
+    color: #fca5a5 !important;
+    border: 1px solid #dc2626 !important;
+}
+
+/* Accordion */
+.gr-accordion {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 10px !important;
+}
+
+/* Input fields */
+input[type="text"], input[type="number"], textarea {
+    background-color: #0f172a !important;
+    border: 1px solid #334155 !important;
+    color: #e2e8f0 !important;
+    border-radius: 8px !important;
+}
+input:focus, textarea:focus {
+    border-color: #22c55e !important;
+    box-shadow: 0 0 0 3px rgba(34,197,94,0.1) !important;
+}
+
+/* App heading */
+h1 {
+    font-size: 1.8rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.02em !important;
+    color: white !important;
+}
+"""
+
+
+# ─────────────────────────────────────────────
+# Data helpers
+# ─────────────────────────────────────────────
 
 def load_matches():
     """Load matches from Supabase database."""
@@ -70,26 +216,21 @@ def get_teams_from_matches():
     """Extract unique team names from matches data."""
     teams = set()
     for match in matches:
-        teams.add(match[1])  # home team
-        teams.add(match[2])  # away team
+        teams.add(match[1])
+        teams.add(match[2])
     return sorted(list(teams)) if teams else []
-
 
 
 def calculate_table(matches_list):
     """Calculate league table from matches list."""
-    # Get all unique teams from matches
     all_teams = set()
     for match in matches_list:
-        all_teams.add(match[1])  # home team (skip ID at index 0)
-        all_teams.add(match[2])  # away team
+        all_teams.add(match[1])
+        all_teams.add(match[2])
 
-    # Initialize stats for all teams
-    # Added #WW (White Washes) and #5GM (5 Goal Matches)
     table = {t: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "Pts": 0, "GPM": 0.0, "GAM": 0.0, "GDM": 0.0, "WP": 0.0, "#WW": 0, "#5GM": 0}
              for t in all_teams}
 
-    # Process each match
     for match in matches_list:
         match_id, h, a, gh, ga = match[0], match[1], match[2], match[3], match[4]
 
@@ -100,7 +241,6 @@ def calculate_table(matches_list):
         table[a]["GF"] += ga
         table[a]["GA"] += gh
 
-        # Track #5GM (5 Goal Matches) - matches where player scores 5+
         if gh >= 5:
             table[h]["#5GM"] += 1
         if ga >= 5:
@@ -110,14 +250,12 @@ def calculate_table(matches_list):
             table[h]["W"] += 1
             table[a]["L"] += 1
             table[h]["Pts"] += 3
-            # Track White Wash - wins where opponent scores 0
             if ga == 0:
                 table[h]["#WW"] += 1
         elif gh < ga:
             table[a]["W"] += 1
             table[h]["L"] += 1
             table[a]["Pts"] += 3
-            # Track White Wash - wins where opponent scores 0
             if gh == 0:
                 table[a]["#WW"] += 1
         else:
@@ -126,7 +264,6 @@ def calculate_table(matches_list):
             table[h]["Pts"] += 1
             table[a]["Pts"] += 1
 
-    # Calculate derived stats
     for t in all_teams:
         if table[t]["P"] > 0:
             table[t]["GPM"] = round(table[t]["GF"] / table[t]["P"], 2)
@@ -134,28 +271,193 @@ def calculate_table(matches_list):
             table[t]["GDM"] = round((table[t]["GF"] - table[t]["GA"]) / table[t]["P"], 2)
             table[t]["WP"] = round((table[t]["W"] / table[t]["P"]) * 100, 2)
 
-    # Create DataFrame
     df = pd.DataFrame.from_dict(table, orient="index")
     df["GD"] = df["GF"] - df["GA"]
     df.reset_index(inplace=True)
     df.rename(columns={"index": "Team"}, inplace=True)
-
-    # Sort by WP descending (as per requirements)
-    # Added #WW and #5GM columns
     df = df[["Team", "WP", "GPM", "GAM", "GDM", "P", "W", "D", "L", "GF", "GA", "GD", "Pts", "#WW", "#5GM"]]
     df = df.sort_values(by=["WP"], ascending=False)
 
     return df
 
 
-def calculate_league_stats(matches_list):
-    """Calculate league-level statistics from matches list."""
+def _parse_datetime(dt):
+    """Parse ISO datetime string, handling variable microsecond precision."""
+    try:
+        return datetime.fromisoformat(dt)
+    except ValueError:
+        dt_normalized = re.sub(r'\.(\d+)', lambda m: '.' + m.group(1).ljust(6, '0')[:6], dt)
+        return datetime.fromisoformat(dt_normalized)
+
+
+def _format_datetime(dt):
+    """Convert datetime string to IST-formatted string."""
+    dt_obj = _parse_datetime(dt)
+    if dt_obj.tzinfo is None:
+        dt_obj = dt_obj.replace(tzinfo=timezone.utc).astimezone(IST)
+    else:
+        dt_obj = dt_obj.astimezone(IST)
+    return dt_obj.strftime("%d-%m-%y %I:%M %p IST")
+
+
+# ─────────────────────────────────────────────
+# HTML renderers
+# ─────────────────────────────────────────────
+
+def render_league_table_html(matches_list):
+    """Render the league table as a styled HTML table."""
     if not matches_list:
-        return pd.DataFrame({
-            "Stat": ["Highest Aggregate Goals", "Biggest Goal Margin", "Most Goals by Any Side"],
-            "Value": ["-", "-", "-"],
-            "Match": ["-", "-", "-"]
-        })
+        return '<div style="padding:24px; text-align:center; color:#64748b;">No matches yet. Add some matches to see the standings.</div>'
+
+    df = calculate_table(matches_list)
+    df = df.reset_index(drop=True)
+
+    rows_html = ""
+    for i, row in df.iterrows():
+        rank = i + 1
+        wp = row["WP"]
+        gd = int(row["GD"])
+        gd_str = f"+{gd}" if gd > 0 else str(gd)
+
+        if wp >= 60:
+            row_style = "background:rgba(34,197,94,0.07); border-left:3px solid #22c55e;"
+        elif wp >= 40:
+            row_style = "background:rgba(234,179,8,0.07); border-left:3px solid #eab308;"
+        else:
+            row_style = "background:rgba(239,68,68,0.07); border-left:3px solid #ef4444;"
+
+        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"<span style='color:#64748b'>#{rank}</span>")
+
+        bar_html = f"""
+        <div style="display:flex; align-items:center; gap:6px; min-width:100px;">
+            <div style="flex:1; background:#334155; border-radius:4px; height:6px;">
+                <div style="width:{wp}%; background:#22c55e; border-radius:4px; height:6px;"></div>
+            </div>
+            <span style="font-size:0.72rem; color:#94a3b8; min-width:38px; text-align:right;">{wp}%</span>
+        </div>
+        """
+
+        rows_html += f"""
+        <tr style="{row_style}" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <td style="padding:10px 8px; font-weight:700; text-align:center;">{medal}</td>
+            <td style="padding:10px 8px; font-weight:600; color:#f1f5f9; white-space:nowrap;">{row['Team']}</td>
+            <td style="padding:10px 8px;">{bar_html}</td>
+            <td style="padding:10px 8px; text-align:center; color:#94a3b8;">{row['P']}</td>
+            <td style="padding:10px 8px; text-align:center; color:#22c55e; font-weight:600;">{row['W']}</td>
+            <td style="padding:10px 8px; text-align:center; color:#94a3b8;">{row['D']}</td>
+            <td style="padding:10px 8px; text-align:center; color:#ef4444; font-weight:600;">{row['L']}</td>
+            <td style="padding:10px 8px; text-align:center;">{row['GF']}</td>
+            <td style="padding:10px 8px; text-align:center;">{row['GA']}</td>
+            <td style="padding:10px 8px; text-align:center; color:{'#22c55e' if gd > 0 else ('#ef4444' if gd < 0 else '#94a3b8')};">{gd_str}</td>
+            <td style="padding:10px 8px; text-align:center; font-weight:800; font-size:1.05rem; color:#fbbf24;">{row['Pts']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.8rem; color:#94a3b8;">{row['GPM']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.8rem; color:#94a3b8;">{row['#WW']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.8rem; color:#94a3b8;">{row['#5GM']}</td>
+        </tr>
+        """
+
+    th = lambda label, color="#94a3b8", align="center": f'<th style="padding:10px 8px; text-align:{align}; color:{color}; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; white-space:nowrap;">{label}</th>'
+
+    table_html = f"""
+    <div style="overflow-x:auto; border-radius:12px; border:1px solid #334155; font-family:Inter,ui-sans-serif,sans-serif;">
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="background:#0f172a; border-bottom:2px solid #22c55e;">
+                    {th('#', '#22c55e')}
+                    {th('Team', '#22c55e', 'left')}
+                    {th('Win Rate', '#22c55e', 'left')}
+                    {th('P')}
+                    {th('W', '#22c55e')}
+                    {th('D')}
+                    {th('L', '#ef4444')}
+                    {th('GF')}
+                    {th('GA')}
+                    {th('GD')}
+                    {th('Pts', '#fbbf24')}
+                    {th('G/GM')}
+                    {th('WW')}
+                    {th('5G')}
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+    </div>
+    """
+    return table_html
+
+
+def render_match_history_html(matches_list):
+    """Render match history as a styled HTML table with color-coded scores."""
+    if not matches_list:
+        return '<div style="padding:24px; text-align:center; color:#64748b; font-family:Inter,sans-serif;">No matches yet.</div>'
+
+    sorted_matches = sorted(matches_list, key=lambda x: x[5], reverse=True)
+
+    rows = ""
+    for i, match in enumerate(sorted_matches, 1):
+        match_id, h, a, gh, ga, dt = match
+        formatted_dt = _format_datetime(dt)
+
+        if gh > ga:
+            h_color, a_color = "#22c55e", "#ef4444"
+            result_label = f"{h} WIN"
+            result_color = "#22c55e"
+        elif ga > gh:
+            h_color, a_color = "#ef4444", "#22c55e"
+            result_label = f"{a} WIN"
+            result_color = "#22c55e"
+        else:
+            h_color = a_color = "#eab308"
+            result_label = "DRAW"
+            result_color = "#eab308"
+
+        rows += f"""
+        <tr style="border-bottom:1px solid #334155;">
+            <td style="padding:8px 10px; color:#64748b; font-size:0.78rem; text-align:center;">{i}</td>
+            <td style="padding:8px 10px; color:#64748b; font-size:0.73rem; white-space:nowrap;">{formatted_dt}</td>
+            <td style="padding:8px 10px; font-weight:600; color:#f1f5f9; text-align:right; white-space:nowrap;">{h}</td>
+            <td style="padding:8px 12px; text-align:center; white-space:nowrap;">
+                <span style="color:{h_color}; font-weight:800; font-size:1rem;">{gh}</span>
+                <span style="color:#475569; margin:0 4px;">–</span>
+                <span style="color:{a_color}; font-weight:800; font-size:1rem;">{ga}</span>
+            </td>
+            <td style="padding:8px 10px; font-weight:600; color:#f1f5f9; white-space:nowrap;">{a}</td>
+            <td style="padding:8px 10px; text-align:center;">
+                <span style="font-size:0.65rem; font-weight:700; color:{result_color}; background:{result_color}18;
+                             padding:2px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:0.05em;">{result_label}</span>
+            </td>
+        </tr>
+        """
+
+    return f"""
+    <div style="overflow-x:auto; border-radius:12px; border:1px solid #334155; font-family:Inter,ui-sans-serif,sans-serif;">
+        <div style="overflow-y:auto; max-height:450px;">
+            <table style="width:100%; border-collapse:collapse;">
+                <thead style="position:sticky; top:0; z-index:1;">
+                    <tr style="background:#0f172a; border-bottom:2px solid #22c55e;">
+                        <th style="padding:8px 10px; color:#94a3b8; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; text-align:center;">#</th>
+                        <th style="padding:8px 10px; color:#94a3b8; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; text-align:left;">Date</th>
+                        <th style="padding:8px 10px; color:#22c55e; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; text-align:right;">Home</th>
+                        <th style="padding:8px 10px; color:#22c55e; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; text-align:center;">Score</th>
+                        <th style="padding:8px 10px; color:#22c55e; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em;">Away</th>
+                        <th style="padding:8px 10px; color:#94a3b8; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; text-align:center;">Result</th>
+                    </tr>
+                </thead>
+                <tbody style="background:#1e293b;">
+                    {rows}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+
+def render_stat_cards(matches_list):
+    """Render league records as styled stat cards."""
+    if not matches_list:
+        return '<div style="padding:24px; text-align:center; color:#64748b; font-family:Inter,sans-serif;">No matches yet.</div>'
 
     highest_aggregate = 0
     highest_aggregate_match = None
@@ -164,23 +466,22 @@ def calculate_league_stats(matches_list):
     most_goals_one_side = 0
     most_goals_one_side_match = None
     most_goals_one_side_team = None
+    total_goals = 0
+    total_matches = len(matches_list)
 
     for match in matches_list:
         match_id, h, a, gh, ga, dt = match[0], match[1], match[2], match[3], match[4], match[5]
-        
-        # Calculate aggregate goals
+        total_goals += gh + ga
         aggregate = gh + ga
         if aggregate > highest_aggregate:
             highest_aggregate = aggregate
             highest_aggregate_match = match
-        
-        # Calculate goal margin
+
         margin = abs(gh - ga)
         if margin > biggest_margin:
             biggest_margin = margin
             biggest_margin_match = match
-        
-        # Track most goals by any side
+
         if gh > most_goals_one_side:
             most_goals_one_side = gh
             most_goals_one_side_match = match
@@ -190,48 +491,46 @@ def calculate_league_stats(matches_list):
             most_goals_one_side_match = match
             most_goals_one_side_team = a
 
-    # Format match info
-    def format_match(m):
+    def fmt(m):
         if m is None:
-            return "-"
-        return f"{m[1]} {m[3]} - {m[4]} {m[2]}"
-    
-    def format_match_with_team(m, team):
-        if m is None:
-            return "-"
-        return f"{team} ({m[1]} {m[3]} - {m[4]} {m[2]})"
+            return "—"
+        return f"{m[1]} {m[3]}–{m[4]} {m[2]}"
 
-    stats_df = pd.DataFrame({
-        "Stat": ["Highest Aggregate Goals", "Biggest Goal Margin", "Most Goals by Any Side"],
-        "Value": [highest_aggregate, biggest_margin, most_goals_one_side],
-        "Match": [format_match(highest_aggregate_match), format_match(biggest_margin_match), format_match_with_team(most_goals_one_side_match, most_goals_one_side_team)]
-    })
+    avg_goals = round(total_goals / total_matches, 1) if total_matches > 0 else 0
 
-    return stats_df
+    card = lambda icon, label, value, sub, color: f"""
+    <div style="background:#1e293b; border-radius:12px; padding:20px 16px; border:1px solid #334155; text-align:center; font-family:Inter,sans-serif;">
+        <div style="font-size:1.6rem; margin-bottom:4px;">{icon}</div>
+        <div style="color:#94a3b8; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px;">{label}</div>
+        <div style="color:{color}; font-size:2.2rem; font-weight:800; margin-bottom:6px; line-height:1;">{value}</div>
+        <div style="color:#cbd5e1; font-size:0.8rem;">{sub}</div>
+    </div>
+    """
+
+    return f"""
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; padding:4px 0; font-family:Inter,sans-serif;">
+        {card('⚽', 'Total Matches', total_matches, f'{total_goals} total goals', '#22c55e')}
+        {card('📊', 'Avg Goals / Match', avg_goals, 'goals per game', '#a78bfa')}
+        {card('🔥', 'Highest Scoring', highest_aggregate, fmt(highest_aggregate_match), '#fbbf24')}
+        {card('💥', 'Biggest Margin', biggest_margin, fmt(biggest_margin_match), '#22c55e')}
+        {card('🎯', 'Most Goals by One Side', most_goals_one_side, f'{most_goals_one_side_team} — {fmt(most_goals_one_side_match)}', '#f97316')}
+    </div>
+    """
 
 
-def get_head_to_head_data(team1, team2, matches_list):
-    """Get both head-to-head stats and matches between two teams in one pass."""
-    empty_stats = pd.DataFrame()
-    empty_matches = pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
-
+def render_h2h_stats_html(team1, team2, matches_list):
+    """Render head-to-head stats as styled HTML cards."""
     if not team1 or not team2 or team1 == team2:
-        return empty_stats, empty_matches
+        return '<div style="padding:24px; text-align:center; color:#64748b; font-family:Inter,sans-serif;">Select two different teams to compare.</div>'
 
-    # Filter matches between these two teams (single pass)
-    h2h_matches = []
     stats = {
-        team1: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "WP": 0.0},
-        team2: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0, "WP": 0.0}
+        team1: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0},
+        team2: {"P": 0, "W": 0, "D": 0, "L": 0, "GF": 0, "GA": 0},
     }
 
     for match in matches_list:
         h, a, gh, ga = match[1], match[2], match[3], match[4]
-
         if (h == team1 and a == team2) or (h == team2 and a == team1):
-            h2h_matches.append(match)
-
-            # Update stats
             stats[h]["P"] += 1
             stats[h]["GF"] += gh
             stats[h]["GA"] += ga
@@ -249,119 +548,137 @@ def get_head_to_head_data(team1, team2, matches_list):
                 stats[h]["D"] += 1
                 stats[a]["D"] += 1
 
-    # Calculate win percentages
-    for team in [team1, team2]:
-        if stats[team]["P"] > 0:
-            stats[team]["WP"] = round((stats[team]["W"] / stats[team]["P"]) * 100, 2)
+    total_played = stats[team1]["P"]
+    if total_played == 0:
+        return f'<div style="padding:24px; text-align:center; color:#64748b; font-family:Inter,sans-serif;">No matches between {team1} and {team2} yet.</div>'
 
-    # Create stats DataFrame
-    stats_df = pd.DataFrame({
-        "Stat": ["P", "W", "D", "L", "Win %", "GF", "GA"],
-        team1: [
-            stats[team1]["P"], stats[team1]["W"], stats[team1]["D"], stats[team1]["L"],
-            f"{stats[team1]['WP']}%", stats[team1]["GF"], stats[team1]["GA"]
-        ],
-        team2: [
-            stats[team2]["P"], stats[team2]["W"], stats[team2]["D"], stats[team2]["L"],
-            f"{stats[team2]['WP']}%", stats[team2]["GF"], stats[team2]["GA"]
-        ]
-    })
+    def wp(t):
+        p = stats[t]["P"]
+        return round((stats[t]["W"] / p) * 100, 1) if p > 0 else 0.0
 
-    # Create matches DataFrame (reuse existing function)
-    matches_df = get_matches_dataframe(h2h_matches)
+    wp1, wp2 = wp(team1), wp(team2)
+    bar1 = wp1
+    bar2 = wp2
 
-    return stats_df, matches_df
-
-
-def calculate_head_to_head(team1, team2, matches_list):
-    """Calculate head-to-head stats between two teams."""
-    stats_df, _ = get_head_to_head_data(team1, team2, matches_list)
-    return stats_df
-
-
-def get_head_to_head_matches(team1, team2, matches_list):
-    """Get all matches between two teams as a DataFrame."""
-    _, matches_df = get_head_to_head_data(team1, team2, matches_list)
-    return matches_df
-
-
-def get_matches_dataframe(matches_list):
-    """Convert matches list to DataFrame for display."""
-    if not matches_list:
-        return pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
-
-    # Sort matches by datetime (most recent first)
-    sorted_matches = sorted(matches_list, key=lambda x: x[5], reverse=True)
-
-    data = []
-    for i, match in enumerate(sorted_matches, 1):
-        match_id, h, a, gh, ga, dt = match
-
-        # Format datetime as DD-MM-YY HH:MM AM/PM IST
-        # Handle ISO format strings with varying microsecond precision
-        try:
-            dt_obj = datetime.fromisoformat(dt)
-        except ValueError:
-            # Fallback: handle timestamps with non-standard microsecond precision
-            # by normalizing microseconds to 6 digits
-            dt_normalized = re.sub(r'\.(\d+)', lambda m: '.' + m.group(1).ljust(6, '0')[:6], dt)
-            dt_obj = datetime.fromisoformat(dt_normalized)
-        
-        # Convert to IST timezone
-        # If datetime is naive (no timezone), assume it's UTC and convert to IST
-        # If datetime has timezone info, convert it to IST
-        if dt_obj.tzinfo is None:
-            # Naive datetime - assume UTC and convert to IST
-            dt_obj = dt_obj.replace(tzinfo=timezone.utc).astimezone(IST)
+    def stat_row(label, v1, v2):
+        if isinstance(v1, float) or isinstance(v2, float):
+            v1s, v2s = f"{v1}%", f"{v2}%"
         else:
-            # Aware datetime - convert to IST
-            dt_obj = dt_obj.astimezone(IST)
-        
-        formatted_dt = dt_obj.strftime("%d-%m-%y %I:%M %p IST")
+            v1s, v2s = str(v1), str(v2)
+        c1 = "#22c55e" if v1 > v2 else ("#ef4444" if v1 < v2 else "#94a3b8")
+        c2 = "#22c55e" if v2 > v1 else ("#ef4444" if v2 < v1 else "#94a3b8")
+        return f"""
+        <tr style="border-bottom:1px solid #334155;">
+            <td style="padding:8px 12px; color:{c1}; font-weight:700; text-align:right; font-size:1rem;">{v1s}</td>
+            <td style="padding:8px 16px; text-align:center; color:#64748b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">{label}</td>
+            <td style="padding:8px 12px; color:{c2}; font-weight:700; font-size:1rem;">{v2s}</td>
+        </tr>
+        """
 
-        data.append({
-            "#": i,
-            "Timestamp": formatted_dt,
-            "Home": h,
-            "Away": a,
-            "Home Goals": gh,
-            "Away Goals": ga
-        })
+    return f"""
+    <div style="font-family:Inter,ui-sans-serif,sans-serif; border-radius:12px; border:1px solid #334155; overflow:hidden;">
+        <div style="background:#0f172a; padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-weight:700; color:#f1f5f9; font-size:1.1rem; text-align:left; flex:1;">{team1}</div>
+            <div style="color:#64748b; font-size:0.8rem; padding:0 16px;">{total_played} matches</div>
+            <div style="font-weight:700; color:#f1f5f9; font-size:1.1rem; text-align:right; flex:1;">{team2}</div>
+        </div>
+        <div style="background:#1e293b; padding:12px 20px; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:0.7rem; color:#22c55e; font-weight:700; min-width:36px; text-align:right;">{bar1}%</span>
+            <div style="flex:1; background:#334155; border-radius:4px; height:8px; overflow:hidden;">
+                <div style="width:{bar1}%; background:#22c55e; height:8px; border-radius:4px 0 0 4px;"></div>
+            </div>
+            <div style="flex:1; background:#334155; border-radius:4px; height:8px; overflow:hidden; direction:rtl;">
+                <div style="width:{bar2}%; background:#22c55e; height:8px; border-radius:4px 0 0 4px;"></div>
+            </div>
+            <span style="font-size:0.7rem; color:#22c55e; font-weight:700; min-width:36px;">{bar2}%</span>
+        </div>
+        <div style="background:#1e293b;">
+            <table style="width:100%; border-collapse:collapse;">
+                <tbody>
+                    {stat_row('Played', stats[team1]['P'], stats[team2]['P'])}
+                    {stat_row('Won', stats[team1]['W'], stats[team2]['W'])}
+                    {stat_row('Drawn', stats[team1]['D'], stats[team2]['D'])}
+                    {stat_row('Lost', stats[team1]['L'], stats[team2]['L'])}
+                    {stat_row('Win %', wp1, wp2)}
+                    {stat_row('Goals For', stats[team1]['GF'], stats[team2]['GF'])}
+                    {stat_row('Goals Against', stats[team1]['GA'], stats[team2]['GA'])}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
 
-    return pd.DataFrame(data)
 
+def get_h2h_match_history_html(team1, team2, matches_list):
+    """Render H2H match history as HTML."""
+    if not team1 or not team2 or team1 == team2:
+        return ""
+    h2h = [m for m in matches_list if
+           (m[1] == team1 and m[2] == team2) or (m[1] == team2 and m[2] == team1)]
+    return render_match_history_html(h2h)
+
+
+# ─────────────────────────────────────────────
+# Status helper
+# ─────────────────────────────────────────────
+
+def make_status(msg):
+    if not msg:
+        return ""
+    is_error = msg.lower().startswith("error")
+    bg = "#fee2e2" if is_error else "#dcfce7"
+    border = "#dc2626" if is_error else "#16a34a"
+    color = "#991b1b" if is_error else "#166534"
+    icon = "✗" if is_error else "✓"
+    return f'<div style="padding:10px 14px; background:{bg}; border-left:4px solid {border}; border-radius:6px; color:{color}; font-weight:500; font-family:Inter,sans-serif;">{icon} {msg}</div>'
+
+
+# ─────────────────────────────────────────────
+# Score preview
+# ─────────────────────────────────────────────
+
+def update_score_preview(home, away, hg, ag):
+    h = home or "Home"
+    a = away or "Away"
+    hg = int(hg or 0)
+    ag = int(ag or 0)
+    h_color = "#22c55e" if hg > ag else ("#ef4444" if hg < ag else "#eab308")
+    a_color = "#22c55e" if ag > hg else ("#ef4444" if ag < hg else "#eab308")
+    result = "DRAW" if hg == ag else (f"{h} WIN" if hg > ag else f"{a} WIN")
+    return f"""
+    <div style="text-align:center; padding:16px; background:#0f172a; border-radius:12px; border:1px solid #334155; font-family:Inter,sans-serif;">
+        <div style="font-size:0.68rem; color:#64748b; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:8px;">{result}</div>
+        <div style="font-size:1.4rem; font-weight:800;">
+            <span style="color:#f1f5f9;">{h}</span>
+            <span style="color:{h_color}; margin:0 14px;">{hg}</span>
+            <span style="color:#475569;">—</span>
+            <span style="color:{a_color}; margin:0 14px;">{ag}</span>
+            <span style="color:#f1f5f9;">{a}</span>
+        </div>
+    </div>
+    """
+
+
+# ─────────────────────────────────────────────
+# CRUD operations
+# ─────────────────────────────────────────────
 
 def add_match(home, away, home_goals, away_goals):
     """Add a new match and update tables."""
-    # Validation
     if not home or not away or not home.strip() or not away.strip():
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Team names cannot be empty!"
-        )
+        return "Error: Team names cannot be empty!"
 
-    # Clean up team names
     home = home.strip()
     away = away.strip()
 
     if home == away:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Home and away teams must be different!"
-        )
+        return "Error: Home and away teams must be different!"
 
     if home_goals < 0 or away_goals < 0:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Goals must be non-negative!"
-        )
+        return "Error: Goals must be non-negative!"
 
     logger.info(f"→ Adding match: {home} {int(home_goals)} - {int(away_goals)} {away}")
 
-    # Insert into Supabase
     try:
         match_datetime = datetime.now(IST).isoformat()
         response = supabase.table("matches").insert({
@@ -378,132 +695,56 @@ def add_match(home, away, home_goals, away_goals):
             match_data = [match_id, home, away, int(home_goals), int(away_goals), record["datetime"]]
             matches.append(match_data)
             logger.info(f"  ✓ Match ID: {match_id}")
-            logger.info(f"  ✓ Successfully saved to Supabase")
-            status = f"Match added: {home} {int(home_goals)} - {int(away_goals)} {away}"
+            return f"Match added: {home} {int(home_goals)} – {int(away_goals)} {away}"
         else:
-            logger.error("  ✗ No data returned from insert")
-            status = f"Match added locally but Supabase returned no data"
+            return "Match added locally but Supabase returned no data"
 
     except Exception as e:
         logger.error(f"  ✗ Error saving to Supabase: {e}")
-        status = f"Error: Failed to save match - {e}"
-
-    # Return updated tables and status
-    league_table = calculate_table(matches)
-    matches_table = get_matches_dataframe(matches)
-
-    return league_table, matches_table, status
+        return f"Error: Failed to save match — {e}"
 
 
-def delete_match(row_number):
-    """Delete a match from history by row number."""
-    if row_number is None or row_number < 1:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Please enter a valid row number!"
-        )
-
-    # Sort matches by datetime (most recent first) to match displayed order
-    sorted_matches = sorted(matches, key=lambda x: x[5], reverse=True)
-    row_idx = int(row_number) - 1
-
-    if row_idx >= len(sorted_matches) or row_idx < 0:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            f"Error: Row {int(row_number)} does not exist! Valid rows: 1-{len(sorted_matches)}"
-        )
-
-    # Get match details
-    sorted_match = sorted_matches[row_idx]
-    match_id, h, a, gh, ga = sorted_match[0], sorted_match[1], sorted_match[2], sorted_match[3], sorted_match[4]
-
-    logger.info(f"→ Deleting match row #{int(row_number)}: {h} {gh} - {ga} {a}")
-    logger.info(f"  Match ID: {match_id}")
-
-    # Delete from Supabase
+def delete_match_by_id(match_id):
+    """Delete a match from Supabase and in-memory cache by match ID."""
     try:
-        response = supabase.table("matches").delete().eq("id", match_id).execute()
-        logger.info(f"  ✓ Successfully deleted from Supabase")
-
-        # Remove from in-memory list
+        supabase.table("matches").delete().eq("id", match_id).execute()
         for i, match in enumerate(matches):
             if match[0] == match_id:
                 matches.pop(i)
                 break
-
-        logger.info(f"  ✓ Match removed from in-memory storage")
-        status = f"Deleted row {int(row_number)}: {h} vs {a} ({gh}-{ga})"
-
+        logger.info(f"  ✓ Match {match_id} deleted")
+        return True
     except Exception as e:
-        logger.error(f"  ✗ Error deleting from Supabase: {e}")
-        status = f"Error: Failed to delete match - {e}"
-
-    # Return updated tables and status
-    league_table = calculate_table(matches)
-    matches_table = get_matches_dataframe(matches)
-
-    return league_table, matches_table, status
+        logger.error(f"  ✗ Error deleting: {e}")
+        return False
 
 
 def update_match(row_number, new_home, new_away, new_home_goals, new_away_goals):
     """Update an existing match by row number."""
     if row_number is None or row_number < 1:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Please enter a valid row number!"
-        )
+        return "Error: Please enter a valid row number!"
 
-    # Sort matches by datetime (most recent first) to match displayed order
     sorted_matches = sorted(matches, key=lambda x: x[5], reverse=True)
     row_idx = int(row_number) - 1
 
     if row_idx >= len(sorted_matches) or row_idx < 0:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            f"Error: Row {int(row_number)} does not exist! Valid rows: 1-{len(sorted_matches)}"
-        )
+        return f"Error: Row {int(row_number)} does not exist! Valid rows: 1–{len(sorted_matches)}"
 
-    # Validation
     if not new_home or not new_away or not new_home.strip() or not new_away.strip():
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Team names cannot be empty!"
-        )
+        return "Error: Team names cannot be empty!"
 
-    # Clean up team names
     new_home = new_home.strip()
     new_away = new_away.strip()
 
     if new_home == new_away:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Home and away teams must be different!"
-        )
+        return "Error: Home and away teams must be different!"
 
     if new_home_goals < 0 or new_away_goals < 0:
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            "Error: Goals must be non-negative!"
-        )
+        return "Error: Goals must be non-negative!"
 
-    # Get the match to update from sorted list
     sorted_match = sorted_matches[row_idx]
     match_id = sorted_match[0]
-    old_home, old_away, old_home_goals, old_away_goals = sorted_match[1], sorted_match[2], sorted_match[3], sorted_match[4]
 
-    logger.info(f"→ Updating match row #{int(row_number)}")
-    logger.info(f"  Match ID: {match_id}")
-    logger.info(f"  Old: {old_home} {old_home_goals} - {old_away_goals} {old_away}")
-    logger.info(f"  New: {new_home} {int(new_home_goals)} - {int(new_away_goals)} {new_away}")
-
-    # Update in Supabase
     try:
         update_datetime = datetime.now(IST).isoformat()
         response = supabase.table("matches").update({
@@ -515,7 +756,6 @@ def update_match(row_number, new_home, new_away, new_home_goals, new_away_goals)
         }).eq("id", match_id).execute()
 
         if response.data:
-            # Update in-memory cache
             for i, match in enumerate(matches):
                 if match[0] == match_id:
                     matches[i][1] = new_home
@@ -523,56 +763,75 @@ def update_match(row_number, new_home, new_away, new_home_goals, new_away_goals)
                     matches[i][3] = int(new_home_goals)
                     matches[i][4] = int(new_away_goals)
                     break
-
-            logger.info(f"  ✓ Successfully updated in Supabase")
-            status = f"Updated row {int(row_number)}: {new_home} {int(new_home_goals)} - {int(new_away_goals)} {new_away}"
+            return f"Updated row {int(row_number)}: {new_home} {int(new_home_goals)} – {int(new_away_goals)} {new_away}"
         else:
-            logger.error("  ✗ No data returned from update")
-            status = f"Error: Update returned no data"
+            return "Error: Update returned no data"
 
     except Exception as e:
-        logger.error(f"  ✗ Error updating in Supabase: {e}")
-        status = f"Error: Failed to update match - {e}"
+        logger.error(f"  ✗ Error updating: {e}")
+        return f"Error: Failed to update match — {e}"
 
-    # Return updated tables and status
-    league_table = calculate_table(matches)
-    matches_table = get_matches_dataframe(matches)
 
-    return league_table, matches_table, status
-
+# ─────────────────────────────────────────────
+# Interface builder
+# ─────────────────────────────────────────────
 
 def build_interface():
     """Build and return the Gradio interface."""
-    # Load initial data from Supabase
     load_matches()
-
-    # Get initial teams from loaded data
     initial_teams = get_teams_from_matches()
 
-    def refresh_data():
-        """Reload matches from Supabase and return updated tables."""
-        load_matches()
-        teams = get_teams_from_matches()
-        if len(teams) >= 2:
-            h2h_table, h2h_matches_table = get_head_to_head_data(teams[0], teams[1], matches)
-        else:
-            h2h_table = pd.DataFrame()
-            h2h_matches_table = pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
-        return (
-            calculate_table(matches),
-            get_matches_dataframe(matches),
-            h2h_table,
-            h2h_matches_table
-        )
-
     with gr.Blocks(title="League Table Manager") as demo:
-        gr.Markdown("# League Table Manager")
+
+        # ── App header ──────────────────────────────────
+        gr.HTML("""
+        <div style="padding:20px 0 8px; font-family:Inter,sans-serif;">
+            <h1 style="font-size:1.9rem; font-weight:900; color:#f1f5f9; letter-spacing:-0.03em; margin:0;">
+                ⚽ League Table Manager
+            </h1>
+            <p style="color:#64748b; margin:4px 0 0; font-size:0.85rem;">Track matches, standings, and head-to-head records</p>
+        </div>
+        """)
 
         with gr.Tabs():
-            with gr.Tab("League Manager"):
+
+            # ── Tab 1: Standings ─────────────────────────
+            with gr.Tab("Standings"):
+                gr.HTML("<h2 style='color:#f1f5f9; font-size:1.1rem; font-weight:700; margin:8px 0 4px; font-family:Inter,sans-serif;'>Current Standings</h2>")
+                standings_html = gr.HTML(value=render_league_table_html(matches))
+
+                with gr.Accordion("Column Guide", open=False):
+                    gr.Markdown("""
+| Column | Meaning |
+|--------|---------|
+| Win Rate | Win percentage (wins / games played) |
+| P | Matches played |
+| W | Wins |
+| D | Draws |
+| L | Losses |
+| GF | Goals scored (Goals For) |
+| GA | Goals conceded (Goals Against) |
+| GD | Goal difference (GF − GA) |
+| Pts | League points (W=3, D=1, L=0) |
+| G/GM | Goals scored per match |
+| WW | Whitewash wins (opponent scored 0) |
+| 5G | Matches where you scored 5 or more |
+                    """)
+
+            # ── Tab 2: Matches ───────────────────────────
+            with gr.Tab("Add Match"):
                 with gr.Row():
-                    # Left Column - Input Form
-                    with gr.Column(scale=1):
+                    # Left: Add Match form
+                    with gr.Column(scale=1, min_width=280):
+                        gr.HTML("<h2 style='color:#f1f5f9; font-size:1rem; font-weight:700; margin:4px 0 12px; font-family:Inter,sans-serif;'>Add Match</h2>")
+
+                        score_preview = gr.HTML(value="""
+                        <div style="text-align:center; padding:16px; background:#0f172a; border-radius:12px;
+                                    border:1px solid #334155; color:#64748b; font-style:italic; font-family:Inter,sans-serif; font-size:0.85rem;">
+                            Select teams and enter goals to preview
+                        </div>
+                        """)
+
                         home_team = gr.Dropdown(
                             choices=initial_teams,
                             label="Home Team",
@@ -587,178 +846,259 @@ def build_interface():
                         )
 
                         with gr.Row():
-                            home_goals = gr.Number(
-                                label="Home Goals",
-                                value=0,
-                                minimum=0,
-                                precision=0
-                            )
-                            away_goals = gr.Number(
-                                label="Away Goals",
-                                value=0,
-                                minimum=0,
-                                precision=0
-                            )
+                            home_goals = gr.Number(label="Home Goals", value=0, minimum=0, precision=0)
+                            away_goals = gr.Number(label="Away Goals", value=0, minimum=0, precision=0)
 
                         submit_btn = gr.Button("Add Match", variant="primary")
-                        status_msg = gr.Textbox(label="Status", interactive=False)
+                        status_html = gr.HTML(value="")
 
-                    # Right Column - Tables
+                    # Right: Match history
                     with gr.Column(scale=2):
-                        league_table = gr.Dataframe(
-                            label="League Table",
-                            value=calculate_table(matches),
-                            interactive=False,
-                            wrap=True
-                        )
+                        gr.HTML("<h2 style='color:#f1f5f9; font-size:1rem; font-weight:700; margin:4px 0 12px; font-family:Inter,sans-serif;'>Match History</h2>")
+                        matches_html = gr.HTML(value=render_match_history_html(matches))
 
-                        matches_table = gr.Dataframe(
-                            label="Match History",
-                            value=get_matches_dataframe(matches),
-                            interactive=False,
-                            wrap=True
-                        )
+                        # Delete accordion
+                        with gr.Accordion("Delete a Match", open=False):
+                            gr.Markdown("Enter the row number from the history above, or click a row to auto-fill.")
+                            delete_preview_html = gr.HTML(value="")
+                            with gr.Row():
+                                delete_row_input = gr.Number(
+                                    label="Row # to Delete",
+                                    value=None,
+                                    minimum=1,
+                                    precision=0,
+                                    scale=2
+                                )
+                                stage_delete_btn = gr.Button("Preview Delete", variant="secondary", scale=1)
+                            confirm_delete_btn = gr.Button("Confirm Delete", variant="stop", visible=False)
+                            pending_match_id = gr.State(None)
 
-                        with gr.Row():
-                            delete_row_input = gr.Number(
-                                label="Row # to Delete",
-                                value=None,
-                                minimum=1,
-                                precision=0,
-                                scale=2
-                            )
-                            delete_btn = gr.Button("Delete Row", variant="stop", scale=1)
+                        # Edit accordion
+                        with gr.Accordion("Edit a Match", open=False):
+                            gr.Markdown("Enter the row number to edit, fill in the new values, then click Save.")
+                            update_row_input = gr.Number(label="Row # to Edit", value=None, minimum=1, precision=0)
+                            with gr.Row():
+                                update_home_team = gr.Dropdown(
+                                    choices=initial_teams,
+                                    label="New Home Team",
+                                    allow_custom_value=True
+                                )
+                                update_away_team = gr.Dropdown(
+                                    choices=initial_teams,
+                                    label="New Away Team",
+                                    allow_custom_value=True
+                                )
+                            with gr.Row():
+                                update_home_goals = gr.Number(label="Home Goals", value=0, minimum=0, precision=0)
+                                update_away_goals = gr.Number(label="Away Goals", value=0, minimum=0, precision=0)
+                            update_btn = gr.Button("Save Changes", variant="secondary")
+                            update_status_html = gr.HTML(value="")
 
-                        gr.Markdown("---")
-                        gr.Markdown("### Update Match")
+                # ── Score preview events ──
+                for component in [home_team, away_team, home_goals, away_goals]:
+                    component.change(
+                        fn=update_score_preview,
+                        inputs=[home_team, away_team, home_goals, away_goals],
+                        outputs=[score_preview]
+                    )
 
-                        with gr.Row():
-                            update_row_input = gr.Number(
-                                label="Row # to Update",
-                                value=None,
-                                minimum=1,
-                                precision=0
-                            )
+                # ── Add Match ──
+                def add_match_full(home, away, hg, ag):
+                    status = add_match(home, away, hg, ag)
+                    teams = get_teams_from_matches()
+                    return (
+                        render_league_table_html(matches),
+                        render_match_history_html(matches),
+                        make_status(status),
+                        gr.Number(value=0),
+                        gr.Number(value=0),
+                        gr.Dropdown(choices=teams),
+                        gr.Dropdown(choices=teams),
+                        gr.Dropdown(choices=teams),
+                        gr.Dropdown(choices=teams),
+                    )
 
-                        with gr.Row():
-                            update_home_team = gr.Dropdown(
-                                choices=initial_teams,
-                                label="New Home Team",
-                                allow_custom_value=True
-                            )
-                            update_away_team = gr.Dropdown(
-                                choices=initial_teams,
-                                label="New Away Team",
-                                allow_custom_value=True
-                            )
-
-                        with gr.Row():
-                            update_home_goals = gr.Number(
-                                label="New Home Goals",
-                                value=0,
-                                minimum=0,
-                                precision=0
-                            )
-                            update_away_goals = gr.Number(
-                                label="New Away Goals",
-                                value=0,
-                                minimum=0,
-                                precision=0
-                            )
-
-                        update_btn = gr.Button("Update Match", variant="secondary")
-
-                # Event Handlers
                 submit_btn.click(
-                    fn=add_match,
+                    fn=add_match_full,
                     inputs=[home_team, away_team, home_goals, away_goals],
-                    outputs=[league_table, matches_table, status_msg]
+                    outputs=[standings_html, matches_html, status_html,
+                             home_goals, away_goals,
+                             home_team, away_team,
+                             update_home_team, update_away_team],
+                    show_progress="minimal"
                 )
 
-                delete_btn.click(
-                    fn=delete_match,
+                # ── Two-step Delete ──
+                def stage_delete(row_number):
+                    if row_number is None or row_number < 1:
+                        return (
+                            '<div style="padding:10px; background:#fee2e2; border-left:4px solid #dc2626; border-radius:6px; color:#991b1b; font-family:Inter,sans-serif;">✗ Invalid row number</div>',
+                            None,
+                            gr.update(visible=False)
+                        )
+                    sorted_m = sorted(matches, key=lambda x: x[5], reverse=True)
+                    row_idx = int(row_number) - 1
+                    if row_idx < 0 or row_idx >= len(sorted_m):
+                        return (
+                            f'<div style="padding:10px; background:#fee2e2; border-left:4px solid #dc2626; border-radius:6px; color:#991b1b; font-family:Inter,sans-serif;">✗ Row {int(row_number)} does not exist</div>',
+                            None,
+                            gr.update(visible=False)
+                        )
+                    m = sorted_m[row_idx]
+                    preview = f"""
+                    <div style="padding:12px; background:#7f1d1d20; border:1px solid #dc2626; border-radius:8px; color:#fca5a5; font-family:Inter,sans-serif;">
+                        About to delete row <strong>{int(row_number)}</strong>:
+                        <strong>{m[1]} {m[3]} – {m[4]} {m[2]}</strong><br>
+                        <small style="color:#94a3b8;">Click <em>Confirm Delete</em> to proceed.</small>
+                    </div>
+                    """
+                    return preview, m[0], gr.update(visible=True)
+
+                stage_delete_btn.click(
+                    fn=stage_delete,
                     inputs=[delete_row_input],
-                    outputs=[league_table, matches_table, status_msg]
+                    outputs=[delete_preview_html, pending_match_id, confirm_delete_btn]
                 )
+
+                def execute_delete(match_id):
+                    if match_id is None:
+                        return (
+                            render_league_table_html(matches),
+                            render_match_history_html(matches),
+                            make_status("Error: No match staged for deletion"),
+                            "",
+                            None,
+                            gr.update(visible=False)
+                        )
+                    ok = delete_match_by_id(match_id)
+                    status = "Match deleted successfully" if ok else "Error: Failed to delete match"
+                    return (
+                        render_league_table_html(matches),
+                        render_match_history_html(matches),
+                        make_status(status),
+                        "",
+                        None,
+                        gr.update(visible=False)
+                    )
+
+                confirm_delete_btn.click(
+                    fn=execute_delete,
+                    inputs=[pending_match_id],
+                    outputs=[standings_html, matches_html, status_html,
+                             delete_preview_html, pending_match_id, confirm_delete_btn],
+                    show_progress="minimal"
+                )
+
+                # ── Row click → auto-fill delete row number ──
+                # (matches_html is gr.HTML so we can't use .select — handled via Dataframe fallback below)
+
+                # ── Edit Match ──
+                def update_match_full(row_number, new_home, new_away, new_home_goals, new_away_goals):
+                    status = update_match(row_number, new_home, new_away, new_home_goals, new_away_goals)
+                    teams = get_teams_from_matches()
+                    return (
+                        render_league_table_html(matches),
+                        render_match_history_html(matches),
+                        make_status(status),
+                        gr.Dropdown(choices=teams),
+                        gr.Dropdown(choices=teams),
+                        gr.Dropdown(choices=teams),
+                        gr.Dropdown(choices=teams),
+                    )
 
                 update_btn.click(
-                    fn=update_match,
-                    inputs=[update_row_input, update_home_team, update_away_team, update_home_goals, update_away_goals],
-                    outputs=[league_table, matches_table, status_msg]
+                    fn=update_match_full,
+                    inputs=[update_row_input, update_home_team, update_away_team,
+                            update_home_goals, update_away_goals],
+                    outputs=[standings_html, matches_html, update_status_html,
+                             home_team, away_team,
+                             update_home_team, update_away_team],
+                    show_progress="minimal"
                 )
 
-            with gr.Tab("Team vs Team Stats"):
-                gr.Markdown("### Head-to-Head Statistics")
+            # ── Tab 3: Head to Head ──────────────────────
+            with gr.Tab("Head to Head"):
+                gr.HTML("<h2 style='color:#f1f5f9; font-size:1.1rem; font-weight:700; margin:8px 0 16px; font-family:Inter,sans-serif;'>Head-to-Head Comparison</h2>")
 
                 with gr.Row():
                     h2h_team1 = gr.Dropdown(
                         choices=initial_teams,
                         label="Team 1",
                         value=initial_teams[0] if initial_teams else None,
-                        allow_custom_value=True
+                        allow_custom_value=True,
+                        scale=1
                     )
                     h2h_team2 = gr.Dropdown(
                         choices=initial_teams,
                         label="Team 2",
                         value=initial_teams[1] if len(initial_teams) > 1 else None,
-                        allow_custom_value=True
+                        allow_custom_value=True,
+                        scale=1
                     )
 
-                # Pre-compute initial h2h data (single pass)
-                if len(initial_teams) >= 2:
-                    initial_h2h_stats, initial_h2h_matches = get_head_to_head_data(initial_teams[0], initial_teams[1], matches)
-                else:
-                    initial_h2h_stats = pd.DataFrame()
-                    initial_h2h_matches = pd.DataFrame(columns=["#", "Timestamp", "Home", "Away", "Home Goals", "Away Goals"])
-
-                h2h_stats = gr.Dataframe(
-                    label="Head-to-Head Stats",
-                    value=initial_h2h_stats,
-                    interactive=False,
-                    wrap=True
+                h2h_stats_html = gr.HTML(
+                    value=render_h2h_stats_html(
+                        initial_teams[0] if initial_teams else None,
+                        initial_teams[1] if len(initial_teams) > 1 else None,
+                        matches
+                    )
                 )
 
-                gr.Markdown("### Match History")
+                gr.HTML("<h3 style='color:#94a3b8; font-size:0.85rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; margin:20px 0 8px; font-family:Inter,sans-serif;'>Match History</h3>")
 
-                h2h_matches = gr.Dataframe(
-                    label="Matches Between Teams",
-                    value=initial_h2h_matches,
-                    interactive=False,
-                    wrap=True
+                h2h_history_html = gr.HTML(
+                    value=get_h2h_match_history_html(
+                        initial_teams[0] if initial_teams else None,
+                        initial_teams[1] if len(initial_teams) > 1 else None,
+                        matches
+                    )
                 )
 
-                # Event handler for team selection (single pass for efficiency)
-                def update_h2h_tables(t1, t2):
-                    return get_head_to_head_data(t1, t2, matches)
+                def update_h2h(t1, t2):
+                    return (
+                        render_h2h_stats_html(t1, t2, matches),
+                        get_h2h_match_history_html(t1, t2, matches)
+                    )
 
-                h2h_team1.change(
-                    fn=update_h2h_tables,
-                    inputs=[h2h_team1, h2h_team2],
-                    outputs=[h2h_stats, h2h_matches]
-                )
+                h2h_team1.change(fn=update_h2h, inputs=[h2h_team1, h2h_team2], outputs=[h2h_stats_html, h2h_history_html])
+                h2h_team2.change(fn=update_h2h, inputs=[h2h_team1, h2h_team2], outputs=[h2h_stats_html, h2h_history_html])
 
-                h2h_team2.change(
-                    fn=update_h2h_tables,
-                    inputs=[h2h_team1, h2h_team2],
-                    outputs=[h2h_stats, h2h_matches]
-                )
+            # ── Tab 4: Records ───────────────────────────
+            with gr.Tab("Records"):
+                gr.HTML("<h2 style='color:#f1f5f9; font-size:1.1rem; font-weight:700; margin:8px 0 16px; font-family:Inter,sans-serif;'>League Records</h2>")
+                records_html = gr.HTML(value=render_stat_cards(matches))
 
-            with gr.Tab("League Stats"):
-                gr.Markdown("### League Statistics")
-                gr.Markdown("Overall league-level records and statistics.")
+        # ── Page load refresh ──
+        def refresh_all():
+            load_matches()
+            teams = get_teams_from_matches()
+            t1 = teams[0] if teams else None
+            t2 = teams[1] if len(teams) > 1 else None
+            return (
+                render_league_table_html(matches),
+                render_match_history_html(matches),
+                render_h2h_stats_html(t1, t2, matches),
+                get_h2h_match_history_html(t1, t2, matches),
+                render_stat_cards(matches),
+                gr.Dropdown(choices=teams),
+                gr.Dropdown(choices=teams),
+                gr.Dropdown(choices=teams),
+                gr.Dropdown(choices=teams),
+                gr.Dropdown(choices=teams),
+                gr.Dropdown(choices=teams),
+            )
 
-                league_stats_table = gr.Dataframe(
-                    label="League Records",
-                    value=calculate_league_stats(matches),
-                    interactive=False,
-                    wrap=True
-                )
-
-        # Load fresh data when the page loads/refreshes
         demo.load(
-            fn=refresh_data,
+            fn=refresh_all,
             inputs=[],
-            outputs=[league_table, matches_table, h2h_stats, h2h_matches]
+            outputs=[
+                standings_html, matches_html,
+                h2h_stats_html, h2h_history_html,
+                records_html,
+                home_team, away_team,
+                update_home_team, update_away_team,
+                h2h_team1, h2h_team2,
+            ]
         )
 
     return demo
@@ -766,4 +1106,4 @@ def build_interface():
 
 if __name__ == "__main__":
     demo = build_interface()
-    demo.launch()
+    demo.launch(theme=LeagueTheme(), css=CSS)
