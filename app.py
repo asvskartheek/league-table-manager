@@ -474,6 +474,17 @@ def render_stat_cards(matches_list):
     total_goals = 0
     total_matches = len(matches_list)
 
+    # Sort chronologically for milestone/streak calculations
+    sorted_matches = sorted(matches_list, key=lambda x: x[5])
+
+    # First to 100 / 500 goals
+    cumulative_goals = {}
+    first_to_100 = None
+    first_to_500 = None
+
+    # Longest winning streak
+    team_results = {}
+
     for match in matches_list:
         match_id, h, a, gh, ga, dt = match[0], match[1], match[2], match[3], match[4], match[5]
         total_goals += gh + ga
@@ -496,6 +507,49 @@ def render_stat_cards(matches_list):
             most_goals_one_side_match = match
             most_goals_one_side_team = a
 
+    for match in sorted_matches:
+        match_id, h, a, gh, ga = match[0], match[1], match[2], match[3], match[4]
+
+        cumulative_goals[h] = cumulative_goals.get(h, 0) + gh
+        cumulative_goals[a] = cumulative_goals.get(a, 0) + ga
+
+        if first_to_100 is None:
+            if cumulative_goals[h] >= 100:
+                first_to_100 = h
+            elif cumulative_goals[a] >= 100:
+                first_to_100 = a
+
+        if first_to_500 is None:
+            if cumulative_goals[h] >= 500:
+                first_to_500 = h
+            elif cumulative_goals[a] >= 500:
+                first_to_500 = a
+
+        team_results.setdefault(h, [])
+        team_results.setdefault(a, [])
+        if gh > ga:
+            team_results[h].append('W')
+            team_results[a].append('L')
+        elif ga > gh:
+            team_results[a].append('W')
+            team_results[h].append('L')
+        else:
+            team_results[h].append('D')
+            team_results[a].append('D')
+
+    longest_streak = 0
+    longest_streak_team = None
+    for team, results in team_results.items():
+        current = 0
+        for r in results:
+            if r == 'W':
+                current += 1
+                if current > longest_streak:
+                    longest_streak = current
+                    longest_streak_team = team
+            else:
+                current = 0
+
     def fmt(m):
         if m is None:
             return "—"
@@ -503,11 +557,11 @@ def render_stat_cards(matches_list):
 
     avg_goals = round(total_goals / total_matches, 1) if total_matches > 0 else 0
 
-    card = lambda icon, label, value, sub, color: f"""
+    card = lambda icon, label, value, sub, color, vsize="2.2rem": f"""
     <div style="background:#1e293b; border-radius:12px; padding:20px 16px; border:1px solid #334155; text-align:center; font-family:Inter,sans-serif;">
         <div style="font-size:1.6rem; margin-bottom:4px;">{icon}</div>
         <div style="color:#94a3b8; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px;">{label}</div>
-        <div style="color:{color}; font-size:2.2rem; font-weight:800; margin-bottom:6px; line-height:1;">{value}</div>
+        <div style="color:{color}; font-size:{vsize}; font-weight:800; margin-bottom:6px; line-height:1.1;">{value}</div>
         <div style="color:#cbd5e1; font-size:0.8rem;">{sub}</div>
     </div>
     """
@@ -519,6 +573,9 @@ def render_stat_cards(matches_list):
         {card('🔥', 'Highest Scoring', highest_aggregate, fmt(highest_aggregate_match), '#fbbf24')}
         {card('💥', 'Biggest Margin', biggest_margin, fmt(biggest_margin_match), '#22c55e')}
         {card('🎯', 'Most Goals by One Side', most_goals_one_side, f'{most_goals_one_side_team} — {fmt(most_goals_one_side_match)}', '#f97316')}
+        {card('🥅', 'First to 100 Goals', first_to_100 or '—', '100 goals milestone', '#22c55e', '1.6rem')}
+        {card('🏆', 'First to 500 Goals', first_to_500 or '—', '500 goals milestone', '#f59e0b', '1.6rem')}
+        {card('⚡', 'Longest Win Streak', longest_streak, longest_streak_team or '—', '#a78bfa')}
     </div>
     """
 
