@@ -657,7 +657,7 @@ def render_h2h_stats_html(team1, team2, matches_list):
             dot_color, dot_label = "#3b82f6", "W"
         else:
             dot_color, dot_label = "#ef4444", "L"
-        form_dots += f'<span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:{dot_color};color:white;font-size:0.68rem;font-weight:800;margin:0 3px;">{dot_label}</span>'
+        form_dots += f'<span style="display:inline-block;width:28px;height:28px;border-radius:50%;background:{dot_color};margin:0 3px;" title="{dot_label}"></span>'
 
     # H2H records
     if h2h_matches:
@@ -803,12 +803,78 @@ def render_h2h_stats_html(team1, team2, matches_list):
 
 
 def get_h2h_match_history_html(team1, team2, matches_list):
-    """Render H2H match history as HTML."""
+    """Render H2H match history with blue/yellow/red color scheme."""
     if not team1 or not team2 or team1 == team2:
         return ""
-    h2h = [m for m in matches_list if
-           (m[1] == team1 and m[2] == team2) or (m[1] == team2 and m[2] == team1)]
-    return render_match_history_html(h2h)
+    h2h = sorted(
+        [m for m in matches_list if
+         (m[1] == team1 and m[2] == team2) or (m[1] == team2 and m[2] == team1)],
+        key=lambda x: x[5], reverse=True
+    )
+    if not h2h:
+        return '<div style="padding:24px; text-align:center; color:#64748b; font-family:Inter,sans-serif;">No matches yet.</div>'
+
+    rows = ""
+    for i, match in enumerate(h2h, 1):
+        match_id, mh, ma, mgh, mga, dt = match[0], match[1], match[2], match[3], match[4], match[5]
+        formatted_dt = _format_datetime(dt)
+
+        if mgh == mga:
+            h_score_color = a_score_color = "#eab308"
+            result_label = "DRAW"
+            result_color = "#eab308"
+        elif (mh == team1 and mgh > mga) or (ma == team1 and mga > mgh):
+            # team1 won
+            h_score_color = "#3b82f6" if mh == team1 else "#ef4444"
+            a_score_color = "#ef4444" if ma == team2 else "#3b82f6"
+            result_label = f"{team1} WIN"
+            result_color = "#3b82f6"
+        else:
+            # team2 won
+            h_score_color = "#ef4444" if mh == team1 else "#3b82f6"
+            a_score_color = "#3b82f6" if ma == team2 else "#ef4444"
+            result_label = f"{team2} WIN"
+            result_color = "#ef4444"
+
+        rows += f"""
+        <tr style="border-bottom:1px solid #334155;">
+            <td style="padding:8px 10px; color:#64748b; font-size:0.78rem; text-align:center;">{i}</td>
+            <td style="padding:8px 10px; color:#64748b; font-size:0.73rem; white-space:nowrap;">{formatted_dt}</td>
+            <td style="padding:8px 10px; font-weight:600; color:#f1f5f9; text-align:right; white-space:nowrap;">{mh}</td>
+            <td style="padding:8px 12px; text-align:center; white-space:nowrap;">
+                <span style="color:{h_score_color}; font-weight:800; font-size:1rem;">{mgh}</span>
+                <span style="color:#475569; margin:0 4px;">–</span>
+                <span style="color:{a_score_color}; font-weight:800; font-size:1rem;">{mga}</span>
+            </td>
+            <td style="padding:8px 10px; font-weight:600; color:#f1f5f9; white-space:nowrap;">{ma}</td>
+            <td style="padding:8px 10px; text-align:center;">
+                <span style="font-size:0.65rem; font-weight:700; color:{result_color}; background:{result_color}18;
+                             padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.05em;">{result_label}</span>
+            </td>
+        </tr>"""
+
+    th = lambda label, align="center": f'<th style="padding:8px 10px; text-align:{align}; color:#22c55e; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.1em; white-space:nowrap;">{label}</th>'
+
+    return f"""
+    <div style="overflow-x:auto; border-radius:12px; border:1px solid #334155; font-family:Inter,ui-sans-serif,sans-serif;">
+        <div style="overflow-y:auto; max-height:450px;">
+            <table style="width:100%; border-collapse:collapse;">
+                <thead style="position:sticky; top:0; z-index:1;">
+                    <tr style="background:#0f172a; border-bottom:2px solid #22c55e;">
+                        {th('#')}
+                        {th('Date', 'left')}
+                        {th('Home', 'right')}
+                        {th('Score')}
+                        {th('Away', 'left')}
+                        {th('Result')}
+                    </tr>
+                </thead>
+                <tbody style="background:#1e293b;">
+                    {rows}
+                </tbody>
+            </table>
+        </div>
+    </div>"""
 
 
 # ─────────────────────────────────────────────
