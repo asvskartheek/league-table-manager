@@ -2,7 +2,7 @@
 title: League Table Manager
 emoji: ⚽
 colorFrom: green
-colorTo: slate
+colorTo: gray
 sdk: gradio
 sdk_version: 6.2.0
 app_file: app.py
