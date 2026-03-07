@@ -312,12 +312,16 @@ def render_league_table_html(matches_list):
     df = calculate_table(matches_list)
     df = df.reset_index(drop=True)
 
+    # Rank teams by GF for gold/silver/bronze goal scorer effect
+    gf_values = df['GF'].tolist()
+    gf_sorted = sorted(set(gf_values), reverse=True)
+    gf_rank_map = {v: (gf_sorted.index(v) + 1) for v in gf_sorted}
+
     rows_html = ""
     for i, row in df.iterrows():
         rank = i + 1
         wp = row["WP"]
-        gd = int(row["GD"])
-        gd_str = f"+{gd}" if gd > 0 else str(gd)
+        gdm = row["GDM"]
 
         if wp >= 60:
             row_style = "background:rgba(34,197,94,0.07); border-left:3px solid #22c55e;"
@@ -328,31 +332,33 @@ def render_league_table_html(matches_list):
 
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"<span style='color:#64748b'>#{rank}</span>")
 
-        bar_html = f"""
-        <div style="display:flex; align-items:center; gap:6px; min-width:100px;">
-            <div style="flex:1; background:#334155; border-radius:4px; height:6px;">
-                <div style="width:{wp}%; background:#22c55e; border-radius:4px; height:6px;"></div>
-            </div>
-            <span style="font-size:0.72rem; color:#94a3b8; min-width:38px; text-align:right;">{wp}%</span>
-        </div>
-        """
+        gf_rank = gf_rank_map[row['GF']]
+        if gf_rank == 1:
+            gf_style = "font-weight:900; font-size:1.1rem; color:#f59e0b; text-shadow:0 0 10px #f59e0baa, 0 0 3px #fbbf24;"
+        elif gf_rank == 2:
+            gf_style = "font-weight:800; font-size:1.1rem; color:#b0b8c4;"
+        elif gf_rank == 3:
+            gf_style = "font-weight:800; font-size:1.1rem; color:#cd7f32;"
+        else:
+            gf_style = "font-weight:700; font-size:1.1rem; color:#64748b;"
+
+        gdm_color = '#22c55e' if gdm > 0 else ('#ef4444' if gdm < 0 else '#94a3b8')
 
         rows_html += f"""
         <tr style="{row_style}" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
             <td style="padding:10px 8px; font-weight:700; text-align:center;">{medal}</td>
             <td style="padding:10px 8px; font-weight:600; color:#f1f5f9; white-space:nowrap;">{row['Team']}</td>
-            <td style="padding:10px 8px;">{bar_html}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.85rem; color:#94a3b8;">{wp}%</td>
             <td style="padding:10px 8px; text-align:center; color:#94a3b8;">{row['P']}</td>
+            <td style="padding:10px 8px; text-align:center; {gf_style}">{row['GF']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['GPM']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['GAM']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:{gdm_color};">{row['GDM']}</td>
             <td style="padding:10px 8px; text-align:center; color:#22c55e; font-weight:600;">{row['W']}</td>
             <td style="padding:10px 8px; text-align:center; color:#94a3b8;">{row['D']}</td>
             <td style="padding:10px 8px; text-align:center; color:#ef4444; font-weight:600;">{row['L']}</td>
-            <td style="padding:10px 8px; text-align:center;">{row['GF']}</td>
-            <td style="padding:10px 8px; text-align:center;">{row['GA']}</td>
-            <td style="padding:10px 8px; text-align:center; color:{'#22c55e' if gd > 0 else ('#ef4444' if gd < 0 else '#94a3b8')};">{gd_str}</td>
-            <td style="padding:10px 8px; text-align:center; font-weight:800; font-size:1.05rem; color:#fbbf24;">{row['Pts']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.8rem; color:#94a3b8;">{row['GPM']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.8rem; color:#94a3b8;">{row['#WW']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.8rem; color:#94a3b8;">{row['#5GM']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['#WW']}</td>
+            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['#5GM']}</td>
         </tr>
         """
 
@@ -365,16 +371,15 @@ def render_league_table_html(matches_list):
                 <tr style="background:#0f172a; border-bottom:2px solid #22c55e;">
                     {th('#', '#22c55e')}
                     {th('Team', '#22c55e', 'left')}
-                    {th('Win Rate', '#22c55e', 'left')}
+                    {th('WR%')}
                     {th('P')}
+                    {th('Goals', '#f59e0b')}
+                    {th('GPM')}
+                    {th('GAM')}
+                    {th('GDM')}
                     {th('W', '#22c55e')}
                     {th('D')}
                     {th('L', '#ef4444')}
-                    {th('GF')}
-                    {th('GA')}
-                    {th('GD')}
-                    {th('Pts', '#fbbf24')}
-                    {th('G/GM')}
                     {th('WW')}
                     {th('5G')}
                 </tr>
