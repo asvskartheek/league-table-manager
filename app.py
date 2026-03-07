@@ -312,10 +312,31 @@ def render_league_table_html(matches_list):
     df = calculate_table(matches_list)
     df = df.reset_index(drop=True)
 
-    # Rank teams by GF for gold/silver/bronze goal scorer effect
-    gf_values = df['GF'].tolist()
-    gf_sorted = sorted(set(gf_values), reverse=True)
-    gf_rank_map = {v: (gf_sorted.index(v) + 1) for v in gf_sorted}
+    def _rank_map(series, ascending=False):
+        vals = sorted(set(series.tolist()), reverse=not ascending)
+        return {v: (vals.index(v) + 1) for v in vals}
+
+    def _medal_style(rank, fallback="#94a3b8", big=False):
+        size = "1.1rem" if big else "1.0rem"
+        small = "1.1rem" if big else "0.82rem"
+        if rank == 1:
+            return f"font-weight:900; font-size:{size}; color:#f59e0b; text-shadow:0 0 10px #f59e0baa, 0 0 3px #fbbf24;"
+        elif rank == 2:
+            return f"font-weight:800; font-size:{size}; color:#b0b8c4;"
+        elif rank == 3:
+            return f"font-weight:800; font-size:{size}; color:#cd7f32;"
+        else:
+            return f"font-size:{small}; color:{fallback};"
+
+    wp_rm   = _rank_map(df['WP'])
+    p_rm    = _rank_map(df['P'])
+    gf_rm   = _rank_map(df['GF'])
+    gpm_rm  = _rank_map(df['GPM'])
+    gam_rm  = _rank_map(df['GAM'], ascending=True)   # lowest GAM is best
+    gdm_rm  = _rank_map(df['GDM'])
+    w_rm    = _rank_map(df['W'])
+    ww_rm   = _rank_map(df['#WW'])
+    fg_rm   = _rank_map(df['#5GM'])
 
     rows_html = ""
     for i, row in df.iterrows():
@@ -332,33 +353,33 @@ def render_league_table_html(matches_list):
 
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"<span style='color:#64748b'>#{rank}</span>")
 
-        gf_rank = gf_rank_map[row['GF']]
-        if gf_rank == 1:
-            gf_style = "font-weight:900; font-size:1.1rem; color:#f59e0b; text-shadow:0 0 10px #f59e0baa, 0 0 3px #fbbf24;"
-        elif gf_rank == 2:
-            gf_style = "font-weight:800; font-size:1.1rem; color:#b0b8c4;"
-        elif gf_rank == 3:
-            gf_style = "font-weight:800; font-size:1.1rem; color:#cd7f32;"
-        else:
-            gf_style = "font-weight:700; font-size:1.1rem; color:#64748b;"
+        gdm_fallback = '#22c55e' if gdm > 0 else ('#ef4444' if gdm < 0 else '#94a3b8')
 
-        gdm_color = '#22c55e' if gdm > 0 else ('#ef4444' if gdm < 0 else '#94a3b8')
+        wp_sty   = _medal_style(wp_rm[wp])
+        p_sty    = _medal_style(p_rm[row['P']])
+        gf_sty   = _medal_style(gf_rm[row['GF']], big=True)
+        gpm_sty  = _medal_style(gpm_rm[row['GPM']])
+        gam_sty  = _medal_style(gam_rm[row['GAM']])
+        gdm_sty  = _medal_style(gdm_rm[gdm], fallback=gdm_fallback)
+        w_sty    = _medal_style(w_rm[row['W']], fallback='#22c55e')
+        ww_sty   = _medal_style(ww_rm[row['#WW']])
+        fg_sty   = _medal_style(fg_rm[row['#5GM']])
 
         rows_html += f"""
         <tr style="{row_style}" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
             <td style="padding:10px 8px; font-weight:700; text-align:center;">{medal}</td>
             <td style="padding:10px 8px; font-weight:600; color:#f1f5f9; white-space:nowrap;">{row['Team']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.85rem; color:#94a3b8;">{wp}%</td>
-            <td style="padding:10px 8px; text-align:center; color:#94a3b8;">{row['P']}</td>
-            <td style="padding:10px 8px; text-align:center; {gf_style}">{row['GF']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['GPM']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['GAM']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:{gdm_color};">{row['GDM']}</td>
-            <td style="padding:10px 8px; text-align:center; color:#22c55e; font-weight:600;">{row['W']}</td>
+            <td style="padding:10px 8px; text-align:center; {wp_sty}">{wp}%</td>
+            <td style="padding:10px 8px; text-align:center; {p_sty}">{row['P']}</td>
+            <td style="padding:10px 8px; text-align:center; {gf_sty}">{row['GF']}</td>
+            <td style="padding:10px 8px; text-align:center; {gpm_sty}">{row['GPM']}</td>
+            <td style="padding:10px 8px; text-align:center; {gam_sty}">{row['GAM']}</td>
+            <td style="padding:10px 8px; text-align:center; {gdm_sty}">{row['GDM']}</td>
+            <td style="padding:10px 8px; text-align:center; {w_sty}font-weight:600;">{row['W']}</td>
             <td style="padding:10px 8px; text-align:center; color:#94a3b8;">{row['D']}</td>
             <td style="padding:10px 8px; text-align:center; color:#ef4444; font-weight:600;">{row['L']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['#WW']}</td>
-            <td style="padding:10px 8px; text-align:center; font-size:0.82rem; color:#94a3b8;">{row['#5GM']}</td>
+            <td style="padding:10px 8px; text-align:center; {ww_sty}">{row['#WW']}</td>
+            <td style="padding:10px 8px; text-align:center; {fg_sty}">{row['#5GM']}</td>
         </tr>
         """
 
