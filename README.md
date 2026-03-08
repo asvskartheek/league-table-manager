@@ -12,7 +12,19 @@ license: mit
 
 # League Table Manager
 
-A Gradio web app for tracking football matches, standings, and head-to-head statistics. Data is persisted in a Supabase PostgreSQL database.
+> Self-hostable football league tracker — standings, H2H stats, and records. Built with Gradio + Supabase.
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Hugging%20Face%20Spaces-orange?logo=huggingface)](https://huggingface.co/spaces/asvs/league-table-manager)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+
+[![Duplicate this Space](https://huggingface.co/datasets/huggingface/badges/resolve/main/duplicate-this-space-md.svg)](https://huggingface.co/spaces/asvs/league-table-manager?duplicate=true)
+
+---
+
+![Standings](product_sc/standings_screen.png)
+
+---
 
 ## Features
 
@@ -21,29 +33,46 @@ A Gradio web app for tracking football matches, standings, and head-to-head stat
 - **Head to Head** — Side-by-side comparison of any two teams: win bar, form guide dots, records, and a full stats table
 - **Records** — League-wide milestones: highest-scoring game, biggest margin, first to 100/500 goals, longest win streak
 
-## Quick Start
+| Standings | Head to Head |
+|---|---|
+| ![Standings](product_sc/standings_screen.png) | ![H2H](product_sc/h2h_screen.png) |
+
+| Records | Add Match |
+|---|---|
+| ![Records](product_sc/records_screen.png) | ![Add Match](product_sc/add_match_screen.png) |
+
+---
+
+## Self-Host in 2 Minutes
+
+The fastest way is to duplicate the Hugging Face Space — no coding needed:
+
+**[→ Read the Self-Hosting Guide](SELF_HOSTING.md)**
+
+Or click the badge above to go directly to the duplicate flow.
+
+---
+
+## Local Development
 
 ### Prerequisites
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
-- A [Supabase](https://supabase.com) project with a `matches` table (see [DOCS.md](DOCS.md))
+- A [Supabase](https://supabase.com) project with a `matches` table (see [SELF_HOSTING.md](SELF_HOSTING.md))
 
 ### Setup
 
 ```bash
 # Clone the repo
-git clone <repo-url>
+git clone https://github.com/asvskartheek/league-table-manager.git
 cd league-table-manager
 
 # Copy and fill in credentials
 cp .env.example .env.local
 # Edit .env.local with your SUPABASE_URL and SUPABASE_KEY
 
-# Install dependencies
-uv sync
-
-# Run locally
+# Install dependencies and run
 ./local_run_space.sh
 ```
 
@@ -56,9 +85,19 @@ The app will be available at `http://localhost:7860`.
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_KEY` | Your Supabase anon/service key |
 
-## Deployment
+## Database Schema
 
-This app is designed to run as a [Hugging Face Space](https://huggingface.co/spaces). Push to the Space repo and set `SUPABASE_URL` and `SUPABASE_KEY` as Space secrets.
+```sql
+create table matches (
+  id          bigint primary key generated always as identity,
+  home        text not null,
+  away        text not null,
+  home_goals  integer not null default 0,
+  away_goals  integer not null default 0,
+  datetime    timestamptz not null default now(),
+  updated_at  timestamptz
+);
+```
 
 ## Project Structure
 
@@ -73,3 +112,13 @@ interface.py    Gradio Blocks UI builder
 ```
 
 See [DOCS.md](DOCS.md) for full technical documentation.
+
+## Tech Stack
+
+- [Gradio](https://gradio.app) — Python web UI framework
+- [Supabase](https://supabase.com) — Postgres database with a Python client
+- [Hugging Face Spaces](https://huggingface.co/spaces) — free hosting
+
+## License
+
+MIT — see [LICENSE](LICENSE)
