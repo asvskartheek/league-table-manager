@@ -15,7 +15,12 @@
       "mcp__supabase__apply_migration",
       "Bash(uv add:*)",
       "mcp__supabase__execute_sql",
-      "Bash(SUPABASE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljaGhzdGh4YWVnZXhlb2dvbHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0NjIwNDcsImV4cCI6MjA4MzAzODA0N30.yskUms5aG5J2hc8IpHngItCERvWBd4F6y2Uy0vqSbhM\" uv run python -c \"from app import load_matches; matches = load_matches\\(\\); print\\(f''Loaded {len\\(matches\\)} matches''\\)\")"
+      "Bash(SUPABASE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljaGhzdGh4YWVnZXhlb2dvbHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0NjIwNDcsImV4cCI6MjA4MzAzODA0N30.yskUms5aG5J2hc8IpHngItCERvWBd4F6y2Uy0vqSbhM\" uv run python -c \"from app import load_matches; matches = load_matches\\(\\); print\\(f''Loaded {len\\(matches\\)} matches''\\)\")",
+      "mcp__reddit__test_reddit_mcp_server",
+      "mcp__reddit__create_post",
+      "mcp__reddit__get_subreddit_info",
+      "mcp__reddit__get_top_posts",
+      "mcp__reddit__search_reddit"
     ]
   },
   "enableAllProjectMcpServers": true,
