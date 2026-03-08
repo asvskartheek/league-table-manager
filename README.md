@@ -12,11 +12,10 @@ license: mit
 
 # League Table Manager
 
-> Self-hostable football league tracker — standings, H2H stats, and records. Built with Gradio + Supabase.
+> Track your football friend group's matches, standings, and records — free, private, and yours.
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Hugging%20Face%20Spaces-orange?logo=huggingface)](https://huggingface.co/spaces/asvs/league-table-manager)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Try%20it%20now-orange?logo=huggingface)](https://huggingface.co/spaces/asvs/league-table-manager)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 
 [![Duplicate this Space](https://huggingface.co/datasets/huggingface/badges/resolve/main/duplicate-this-space-md.svg)](https://huggingface.co/spaces/asvs/league-table-manager?duplicate=true)
 
@@ -26,66 +25,37 @@ license: mit
 
 ---
 
-## Features
+## What is this?
 
-- **Standings** — Live league table sorted by win rate, with gold/silver/bronze highlights for top performers across key stats
-- **Add Match** — Add, edit, and delete matches with a live score preview; match history shown alongside the form
-- **Head to Head** — Side-by-side comparison of any two teams: win bar, form guide dots, records, and a full stats table
-- **Records** — League-wide milestones: highest-scoring game, biggest margin, first to 100/500 goals, longest win streak
+My group of friends plays football every week. After 200+ matches we had no way to know who was actually dominating — so I built this.
 
-| Standings | Head to Head |
-|---|---|
-| ![Standings](product_sc/standings_screen.png) | ![H2H](product_sc/h2h_screen.png) |
+It tracks every result, keeps a live standings table sorted by win rate, lets you compare any two players head-to-head, and surfaces fun records like longest win streak and highest-scoring games.
 
-| Records | Add Match |
-|---|---|
-| ![Records](product_sc/records_screen.png) | ![Add Match](product_sc/add_match_screen.png) |
+It's free. It's private. And you can have your own copy running in under 10 minutes.
 
 ---
 
-## Self-Host in 2 Minutes
+## Screenshots
 
-The fastest way is to duplicate the Hugging Face Space — no coding needed:
+| Head to Head | Records |
+|---|---|
+| ![H2H](product_sc/h2h_screen.png) | ![Records](product_sc/records_screen.png) |
 
-**[→ Read the Self-Hosting Guide](SELF_HOSTING.md)**
-
-Or click the badge above to go directly to the duplicate flow.
+![Add Match](product_sc/add_match_screen.png)
 
 ---
 
-## Local Development
+## Set Up Your Own (Free, No Coding)
 
-### Prerequisites
+You need two free accounts: **Supabase** (stores your data) and **Hugging Face** (runs the app). Both have free tiers with no time limits.
 
-- Python 3.12+
-- [uv](https://github.com/astral-sh/uv) package manager
-- A [Supabase](https://supabase.com) project with a `matches` table (see [SELF_HOSTING.md](SELF_HOSTING.md))
+---
 
-### Setup
+### Step 1 — Set up your database (Supabase)
 
-```bash
-# Clone the repo
-git clone https://github.com/asvskartheek/league-table-manager.git
-cd league-table-manager
-
-# Copy and fill in credentials
-cp .env.example .env.local
-# Edit .env.local with your SUPABASE_URL and SUPABASE_KEY
-
-# Install dependencies and run
-./local_run_space.sh
-```
-
-The app will be available at `http://localhost:7860`.
-
-## Environment Variables
-
-| Variable | Description |
-|---|---|
-| `SUPABASE_URL` | Your Supabase project URL |
-| `SUPABASE_KEY` | Your Supabase anon/service key |
-
-## Database Schema
+1. Go to [supabase.com](https://supabase.com) and create a free account.
+2. Click **New project**, give it any name (e.g. `my-league`), set a password, pick your region, and wait ~1 minute.
+3. In the left sidebar, click **SQL Editor** → **New query**. Paste the following and click **Run ▶**:
 
 ```sql
 create table matches (
@@ -99,26 +69,76 @@ create table matches (
 );
 ```
 
-## Project Structure
+You should see **"Success. No rows returned."** — that means it worked.
 
-```
-app.py          Entry point — launches the Gradio app
-config.py       Environment variables, Supabase client, logging, IST timezone
-data.py         In-memory match cache, Supabase loading, table calculations
-theme.py        Gradio theme (LeagueTheme) and global CSS
-renderers.py    HTML rendering functions for each UI section
-crud.py         Add / update / delete match operations
-interface.py    Gradio Blocks UI builder
-```
+4. Go to **Project Settings** (gear icon) → **API**. Copy these two values somewhere:
+   - **Project URL** — looks like `https://abcdefgh.supabase.co`
+   - **anon public** key — a long string starting with `eyJ...`
 
-See [DOCS.md](DOCS.md) for full technical documentation.
+---
 
-## Tech Stack
+### Step 2 — Deploy the app (Hugging Face)
 
-- [Gradio](https://gradio.app) — Python web UI framework
-- [Supabase](https://supabase.com) — Postgres database with a Python client
-- [Hugging Face Spaces](https://huggingface.co/spaces) — free hosting
+1. Click the **Duplicate this Space** button at the top of this page (or [click here](https://huggingface.co/spaces/asvs/league-table-manager?duplicate=true)).
+2. Sign in or create a free Hugging Face account if prompted.
+3. Choose a name for your copy and set visibility to **Private**.
+4. In the **Variables and secrets** section, add:
+
+   | Name | Value |
+   |---|---|
+   | `SUPABASE_URL` | Your Project URL from Step 1 |
+   | `SUPABASE_KEY` | Your anon key from Step 1 |
+
+5. Click **Duplicate Space**.
+
+After 1–2 minutes your app will be live at `https://huggingface.co/spaces/YOUR_USERNAME/YOUR_SPACE_NAME`. Bookmark it on your phone.
+
+---
+
+### Using the app
+
+1. Go to **Add Match** — type in player names and the score.
+2. **Standings** updates automatically after every match.
+3. **Head to Head** — pick any two players to see their full history and form.
+4. **Records** — see league-wide milestones like longest win streak and top scorer.
+
+---
+
+## Troubleshooting
+
+**The app is stuck on "Building..."**
+That's normal on first deploy — it's installing dependencies. Give it 2–3 minutes. If it turns red, click **Logs**.
+
+**"Error connecting to database"**
+Your Supabase credentials aren't set correctly. Go to your Space → **Settings** → **Repository secrets** and check `SUPABASE_URL` and `SUPABASE_KEY`.
+
+**I forgot to add the secrets before duplicating**
+Go to your Space → **Settings** → **Repository secrets** → add them there, then click **Factory reboot**.
+
+---
+
+## FAQ
+
+**Is this really free?**
+Yes. Supabase free tier covers far more than a friend group will ever need. Hugging Face free CPU Spaces have no time limits.
+
+**Can other people add matches?**
+If your Space is **Private**, only you and people you explicitly invite can access it. If **Public**, anyone with the URL can add and edit matches.
+
+**What if I delete the Space by accident?**
+Your data lives in Supabase — it's safe. Just duplicate the Space again with the same credentials and all your match history will be there.
+
+**Can I rename teams?**
+Team names are just whatever you type when adding a match. Keep spelling consistent and it all works.
+
+---
+
+## Contributing
+
+Want to run this locally or contribute to the code? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT — free to use, modify, and share. See [LICENSE](LICENSE).
